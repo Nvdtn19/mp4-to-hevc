@@ -1,4 +1,4 @@
-name: Convert to HEVC
+name: Convert to HEVC 60fps
 
 on:
   workflow_dispatch:
