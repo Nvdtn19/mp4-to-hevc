@@ -1,36 +1,83 @@
-name: Convert MP4 to HEVC
+name: Video Processing with FFmpeg
 
 on:
   workflow_dispatch:
     inputs:
       video_url:
-        description: 'Direct URL to the video file'
+        description: 'Direct URL of the video'
         required: true
-        type: string
 
 jobs:
-  convert:
+  process-video:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install FFmpeg
         run: |
-          sudo apt update
-          sudo apt install -y ffmpeg
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
 
-      - name: Download Video
+      - name: Download video
         run: |
-          curl -L "${{ github.event.inputs.video_url }}" -o input.mp4
+          echo "Downloading video from ${{ github.event.inputs.video_url }}"
+          curl -L "${{ github.event.inputs.video_url }}" -o input_video
 
-      - name: Convert to HEVC
+      - name: Create logs directory and define log file
+        id: setup_logs
         run: |
-          ffmpeg -i input.mp4 -c:v libx265 -preset slow -crf 28 -c:a aac -b:a 128k output.mp4
+          mkdir -p logs
+          # Create a log file with current date/time in UTC+7 (format: yyyy-mm-dd hh:mm:ss.log)
+          LOG_FILE=$(TZ="Asia/Bangkok" date "+%Y-%m-%d %H:%M:%S").log
+          echo "LOG_FILE=$LOG_FILE" >> $GITHUB_ENV
+          # Create an empty log file
+          touch "logs/$LOG_FILE"
+          echo "Log file will be saved to logs/$LOG_FILE"
 
-      - name: Upload Converted File
-        uses: actions/upload-artifact@v4
+      - name: Detect container format
+        id: format
+        run: |
+          # Use ffprobe to detect the container format (format_name may be a comma-separated list)
+          CONTAINER=$(ffprobe -v error -show_entries format=format_name -of default=noprint_wrappers=1:nokey=1 input_video)
+          echo "Detected container: $CONTAINER"
+          echo "container=$CONTAINER" >> $GITHUB_OUTPUT
+
+      - name: Convert to MP4 if needed and encode to HEVC
+        run: |
+          # Define our log file from the environment variable
+          LOG_FILE="$LOG_FILE"
+          
+          # If the container string does not contain "mp4", convert to mp4
+          if [[ "${{ steps.format.outputs.container }}" != *"mp4"* ]]; then
+            echo "Input video is not in MP4 container. Converting to MP4..." | tee -a "logs/$LOG_FILE"
+            ffmpeg -i input_video -c:v libx264 -crf 23 -preset slow -c:a aac -b:a 128k temp.mp4 2>&1 | tee -a "logs/$LOG_FILE"
+            mv temp.mp4 input_video.mp4
+          else
+            echo "Input video is already in MP4 container. Copying file..." | tee -a "logs/$LOG_FILE"
+            cp input_video input_video.mp4
+          fi
+          
+          echo "Encoding MP4 video to HEVC (H.265)..." | tee -a "logs/$LOG_FILE"
+          ffmpeg -i input_video.mp4 -c:v libx265 -crf 28 -preset slow -c:a copy output_video.mp4 2>&1 | tee -a "logs/$LOG_FILE"
+
+      - name: Commit logs to repository
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add logs
+          # Commit only if there are changes in the logs folder.
+          if ! git diff-index --quiet HEAD --; then
+            git commit -m "Add ffmpeg log $(TZ='Asia/Bangkok' date '+%Y-%m-%d %H:%M:%S')"
+            git push
+          else
+            echo "No changes to commit in logs folder."
+          fi
+
+      - name: Upload video artifact
+        uses: actions/upload-artifact@v3
         with:
-          name: converted-video
-          path: output.mp4
+          name: processed-video
+          path: output_video.mp4
