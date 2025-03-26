@@ -32,7 +32,7 @@ jobs:
       - name: Convert MP4 to HEVC (H.265)
         run: |
           echo "Converting MP4 to HEVC..."
-          ffmpeg -i mp4_video.mp4 -vf "minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx265 -crf 33 -preset veryslow -c:a aac -b:a 96k hevc_video_60fps.mp4
+          ffmpeg -i mp4_video.mp4 -vf "minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx265 -crf 33 -preset veryslow -c:a aac -b:a 128k hevc_video_60fps.mp4
 
       - name: Upload HEVC Video Artifact
         uses: actions/upload-artifact@v4
