@@ -1,4 +1,4 @@
-name: FFmpeg Conversion
+name: Convert to HEVC
 
 on:
   workflow_dispatch:
@@ -54,7 +54,7 @@ jobs:
 
       - name: Convert to HEVC (libx265)
         run: |
-          ffmpeg -i video_for_hevc.mp4 -c:v libx265 -crf 34 -preset veryslow -c:a aac -b:a 96k hevc_video.mp4
+          ffmpeg -i video_for_hevc.mp4 -c:v libx265 -crf 34 -preset veryslow -c:a aac -b:a 128k hevc_video.mp4
 
       - name: Upload HEVC Video Artifact
         uses: actions/upload-artifact@v4
