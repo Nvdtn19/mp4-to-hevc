@@ -24,37 +24,15 @@ jobs:
           echo "Downloading video from '${{ github.event.inputs.video_url }}'"
           curl -L "${{ github.event.inputs.video_url }}" -o input_video
 
-      - name: Detect Video Format
-        id: detect_format
+      - name: Convert to MP4 (Always)
         run: |
-          # Use ffprobe to get the container format
-          FORMAT=$(ffprobe -v error -show_entries format=format_name -of default=noprint_wrappers=1:nokey=1 input_video)
-          echo "Detected format: ${FORMAT}"
-          # If the format string contains "mp4", then we consider it an MP4 file.
-          if [[ "${FORMAT}" == *"mp4"* ]]; then
-            echo "is_mp4=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_mp4=false" >> $GITHUB_OUTPUT
-          fi
+          echo "Re-encoding video to MP4..."
+          ffmpeg -i input_video -c:v libx264 -crf 28 -preset veryslow -c:a aac -b:a 128k mp4_video.mp4
 
-      - name: Convert to MP4 if needed
-        id: convert_mp4
-        if: steps.detect_format.outputs.is_mp4 == 'false'
+      - name: Convert MP4 to HEVC (H.265)
         run: |
-          ffmpeg -i input_video -c:v libx264 -crf 30 -preset veryslow -c:a aac -b:a 96k output.mp4
-
-      - name: Prepare MP4 file for HEVC conversion
-        run: |
-          # Use the converted file if it exists, otherwise use the original download.
-          if [ -f mp4_video.mp4 ]; then
-            cp mp4_video.mp4 video_for_hevc.mp4
-          else
-            cp input_video video_for_hevc.mp4
-          fi
-
-      - name: Convert to HEVC (libx265)
-        run: |
-          ffmpeg -i video_for_hevc.mp4 -c:v libx265 -crf 34 -preset veryslow -c:a aac -b:a 128k hevc_video.mp4
+          echo "Converting MP4 to HEVC..."
+          ffmpeg -i mp4_video.mp4 -c:v libx265 -crf 33 -preset veryslow -c:a aac -b:a 128k hevc_video.mp4
 
       - name: Upload HEVC Video Artifact
         uses: actions/upload-artifact@v4
