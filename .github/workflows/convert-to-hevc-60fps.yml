@@ -40,19 +40,19 @@ jobs:
         id: convert_mp4
         if: steps.detect_format.outputs.is_mp4 == 'false'
         run: |
-          ffmpeg -i input_video -vf "minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx264 -crf 30 -preset veryslow -c:a aac -b:a 96k output.mp4
+          ffmpeg -i input_video -vf "minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx264 -crf 32 -preset veryslow -c:a aac -b:a 96k output.mp4
 
       - name: Prepare MP4 file for HEVC conversion
         run: |
           if [ -f output.mp4 ]; then
             cp output.mp4 video_for_hevc.mp4
           else
-            ffmpeg -i input_video -vf "minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx264 -crf 30 -preset veryslow -c:a aac -b:a 96k video_for_hevc.mp4
+            ffmpeg -i input_video -vf "minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx264 -crf 32 -preset veryslow -c:a aac -b:a 96k video_for_hevc.mp4
           fi
 
       - name: Convert to HEVC (H.265) with 60 FPS
         run: |
-          ffmpeg -i video_for_hevc.mp4 -vf "minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx265 -crf 30 -preset veryslow -c:a aac -b:a 96k hevc_video.mp4
+          ffmpeg -i video_for_hevc.mp4 -vf "minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx265 -crf 32 -preset veryslow -c:a aac -b:a 96k hevc_video.mp4
 
       - name: Upload HEVC Video Artifact
         uses: actions/upload-artifact@v4
