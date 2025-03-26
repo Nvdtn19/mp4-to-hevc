@@ -1,0 +1,61 @@
+name: Convert to HEVC 60fps
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'Direct URL of the video to process'
+        required: true
+        default: 'https://example.com/video.mp4'
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Download Video
+        run: |
+          echo "Downloading video from '${{ github.event.inputs.video_url }}'"
+          curl -L "${{ github.event.inputs.video_url }}" -o input_video
+
+      - name: Detect Video Format
+        id: detect_format
+        run: |
+          FORMAT=$(ffprobe -v error -show_entries format=format_name -of default=noprint_wrappers=1:nokey=1 input_video)
+          echo "Detected format: ${FORMAT}"
+          if [[ "${FORMAT}" == *"mp4"* ]]; then
+            echo "is_mp4=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_mp4=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Convert to MP4 with 60 FPS (if needed)
+        id: convert_mp4
+        if: steps.detect_format.outputs.is_mp4 == 'false'
+        run: |
+          ffmpeg -i input_video -vf "minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx264 -crf 30 -preset veryslow -c:a aac -b:a 96k output.mp4
+
+      - name: Prepare MP4 file for HEVC conversion
+        run: |
+          if [ -f output.mp4 ]; then
+            cp output.mp4 video_for_hevc.mp4
+          else
+            ffmpeg -i input_video -vf "minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx264 -crf 30 -preset veryslow -c:a aac -b:a 96k video_for_hevc.mp4
+          fi
+
+      - name: Convert to HEVC (H.265) with 60 FPS
+        run: |
+          ffmpeg -i video_for_hevc.mp4 -vf "minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx265 -crf 30 -preset veryslow -c:a aac -b:a 96k hevc_video.mp4
+
+      - name: Upload HEVC Video Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hevc_video
+          path: hevc_video.mp4
