@@ -1,0 +1,36 @@
+name: Convert MP4 to HEVC
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'Direct URL to the video file'
+        required: true
+        type: string
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install FFmpeg
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg
+
+      - name: Download Video
+        run: |
+          curl -L "${{ github.event.inputs.video_url }}" -o input.mp4
+
+      - name: Convert to HEVC
+        run: |
+          ffmpeg -i input.mp4 -c:v libx265 -preset medium -crf 28 -c:a aac output.mp4
+
+      - name: Upload Converted File
+        uses: actions/upload-artifact@v4
+        with:
+          name: converted-video
+          path: output.mp4
