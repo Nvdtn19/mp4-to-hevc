@@ -1,4 +1,4 @@
-name: FFmpeg Conversion
+name: Convert to HEVC 24fps
 
 on:
   workflow_dispatch:
@@ -6,7 +6,6 @@ on:
       video_url:
         description: 'Direct URL of the video to process'
         required: true
-        default: ''
 
 jobs:
   convert:
@@ -25,34 +24,15 @@ jobs:
           echo "Downloading video from '${{ github.event.inputs.video_url }}'"
           curl -L "${{ github.event.inputs.video_url }}" -o input_video
 
-      - name: Detect Video Format
-        id: detect_format
+      - name: Convert to MP4 (Always)
         run: |
-          FORMAT=$(ffprobe -v error -show_entries format=format_name -of default=noprint_wrappers=1:nokey=1 input_video)
-          echo "Detected format: ${FORMAT}"
-          if [[ "${FORMAT}" == *"mp4"* ]]; then
-            echo "is_mp4=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_mp4=false" >> $GITHUB_OUTPUT
-          fi
+          echo "Re-encoding video to MP4..."
+          ffmpeg -i input_video -vf "minterpolate=fps=24:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx264 -crf 28 -preset veryslow -c:a aac -b:a 128k mp4_video.mp4
 
-      - name: Convert to MP4 with 24 FPS (if needed)
-        id: convert_mp4
-        if: steps.detect_format.outputs.is_mp4 == 'false'
+      - name: Convert MP4 to HEVC (H.265)
         run: |
-          ffmpeg -i input_video -vf "minterpolate=fps=24:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx264 -crf 28 -preset veryslow -c:a aac -b:a 128k output.mp4
-
-      - name: Prepare MP4 file for HEVC conversion
-        run: |
-          if [ -f output.mp4 ]; then
-            cp output.mp4 video_for_hevc.mp4
-          else
-            ffmpeg -i input_video -vf "minterpolate=fps=24:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx264 -crf 28 -preset veryslow -c:a aac -b:a 128k video_for_hevc.mp4
-          fi
-
-      - name: Convert to HEVC (H.265) with 24 FPS
-        run: |
-          ffmpeg -i video_for_hevc.mp4 -vf "minterpolate=fps=24:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx265 -crf 32 -preset veryslow -c:a aac -b:a 128k hevc_video_24fps.mp4
+          echo "Converting MP4 to HEVC..."
+          ffmpeg -i mp4_video.mp4 -vf "minterpolate=fps=24:mi_mode=mci:mc_mode=aobmc:me_mode=bidir" -c:v libx265 -crf 33 -preset veryslow -c:a aac -b:a 128k hevc_video_24fps.mp4
 
       - name: Upload HEVC Video Artifact
         uses: actions/upload-artifact@v4
