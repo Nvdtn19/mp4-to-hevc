@@ -1,83 +1,73 @@
-name: Video Processing with FFmpeg
+name: FFmpeg Conversion
 
 on:
   workflow_dispatch:
     inputs:
       video_url:
-        description: 'Direct URL of the video'
+        description: 'Direct URL of the video to process'
         required: true
+        default: 'https://example.com/video.mp4'
 
 jobs:
-  process-video:
+  convert:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v3
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install FFmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
 
-      - name: Download video
+      - name: Download Video
         run: |
-          echo "Downloading video from ${{ github.event.inputs.video_url }}"
+          echo "Downloading video from '${{ github.event.inputs.video_url }}'"
           curl -L "${{ github.event.inputs.video_url }}" -o input_video
 
-      - name: Create logs directory and define log file
-        id: setup_logs
+      - name: Detect Video Format
+        id: detect_format
+        run: |
+          # Use ffprobe to get the container format
+          FORMAT=$(ffprobe -v error -show_entries format=format_name -of default=noprint_wrappers=1:nokey=1 input_video)
+          echo "Detected format: ${FORMAT}"
+          # If the format string contains "mp4", then we consider it an MP4 file.
+          if [[ "${FORMAT}" == *"mp4"* ]]; then
+            echo "is_mp4=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_mp4=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Convert to MP4 if needed
+        id: convert_mp4
+        if: steps.detect_format.outputs.is_mp4 == 'false'
         run: |
           mkdir -p logs
-          # Create a log file with current date/time in UTC+7 (format: yyyy-mm-dd hh:mm:ss.log)
-          LOG_FILE=$(TZ="Asia/Bangkok" date "+%Y-%m-%d %H:%M:%S").log
-          echo "LOG_FILE=$LOG_FILE" >> $GITHUB_ENV
-          # Create an empty log file
-          touch "logs/$LOG_FILE"
-          echo "Log file will be saved to logs/$LOG_FILE"
+          # Generate a timestamp in UTC+7 (format: yyyy-mm-dd hh:mm:ss)
+          TIMESTAMP=$(TZ='Asia/Bangkok' date '+%Y-%m-%d %H:%M:%S')
+          echo "Converting to MP4. Log: logs/${TIMESTAMP}.log"
+          ffmpeg -i input_video -c:v libx264 -crf 23 -preset slow -c:a aac -b:a 128k mp4_video.mp4 2>&1 | tee "logs/${TIMESTAMP}.log"
+        shell: bash
 
-      - name: Detect container format
-        id: format
+      - name: Prepare MP4 file for HEVC conversion
         run: |
-          # Use ffprobe to detect the container format (format_name may be a comma-separated list)
-          CONTAINER=$(ffprobe -v error -show_entries format=format_name -of default=noprint_wrappers=1:nokey=1 input_video)
-          echo "Detected container: $CONTAINER"
-          echo "container=$CONTAINER" >> $GITHUB_OUTPUT
-
-      - name: Convert to MP4 if needed and encode to HEVC
-        run: |
-          # Define our log file from the environment variable
-          LOG_FILE="$LOG_FILE"
-          
-          # If the container string does not contain "mp4", convert to mp4
-          if [[ "${{ steps.format.outputs.container }}" != *"mp4"* ]]; then
-            echo "Input video is not in MP4 container. Converting to MP4..." | tee -a "logs/$LOG_FILE"
-            ffmpeg -i input_video -c:v libx264 -crf 23 -preset slow -c:a aac -b:a 128k temp.mp4 2>&1 | tee -a "logs/$LOG_FILE"
-            mv temp.mp4 input_video.mp4
+          # If conversion to MP4 was performed, use that file. Otherwise, use the original input.
+          if [ -f mp4_video.mp4 ]; then
+            cp mp4_video.mp4 video_for_hevc.mp4
           else
-            echo "Input video is already in MP4 container. Copying file..." | tee -a "logs/$LOG_FILE"
-            cp input_video input_video.mp4
-          fi
-          
-          echo "Encoding MP4 video to HEVC (H.265)..." | tee -a "logs/$LOG_FILE"
-          ffmpeg -i input_video.mp4 -c:v libx265 -crf 28 -preset slow -c:a copy output_video.mp4 2>&1 | tee -a "logs/$LOG_FILE"
-
-      - name: Commit logs to repository
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add logs
-          # Commit only if there are changes in the logs folder.
-          if ! git diff-index --quiet HEAD --; then
-            git commit -m "Add ffmpeg log $(TZ='Asia/Bangkok' date '+%Y-%m-%d %H:%M:%S')"
-            git push
-          else
-            echo "No changes to commit in logs folder."
+            cp input_video video_for_hevc.mp4
           fi
 
-      - name: Upload video artifact
-        uses: actions/upload-artifact@v3
+      - name: Convert to HEVC (libx265)
+        run: |
+          mkdir -p logs
+          TIMESTAMP=$(TZ='Asia/Bangkok' date '+%Y-%m-%d %H:%M:%S')
+          echo "Converting to HEVC. Log: logs/${TIMESTAMP}.log"
+          ffmpeg -i video_for_hevc.mp4 -c:v libx265 -crf 28 -preset slow -c:a copy hevc_video.mp4 2>&1 | tee "logs/${TIMESTAMP}.log"
+        shell: bash
+
+      - name: Upload HEVC Video Artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: processed-video
-          path: output_video.mp4
+          name: hevc_video
+          path: hevc_video.mp4
