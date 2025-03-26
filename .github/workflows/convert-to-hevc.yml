@@ -6,7 +6,6 @@ on:
       video_url:
         description: 'Direct URL of the video to process'
         required: true
-        default: 'https://example.com/video.mp4'
 
 jobs:
   convert:
@@ -42,16 +41,11 @@ jobs:
         id: convert_mp4
         if: steps.detect_format.outputs.is_mp4 == 'false'
         run: |
-          mkdir -p logs
-          # Generate a timestamp in UTC+7 (format: yyyy-mm-dd hh:mm:ss)
-          TIMESTAMP=$(TZ='Asia/Bangkok' date '+%Y-%m-%d %H:%M:%S')
-          echo "Converting to MP4. Log: logs/${TIMESTAMP}.log"
-          ffmpeg -i input_video -c:v libx264 -crf 23 -preset slow -c:a aac -b:a 128k mp4_video.mp4 2>&1 | tee "logs/${TIMESTAMP}.log"
-        shell: bash
+          ffmpeg -i input_video -c:v libx264 -crf 23 -preset slow -c:a aac -b:a 128k mp4_video.mp4
 
       - name: Prepare MP4 file for HEVC conversion
         run: |
-          # If conversion to MP4 was performed, use that file. Otherwise, use the original input.
+          # Use the converted file if it exists, otherwise use the original download.
           if [ -f mp4_video.mp4 ]; then
             cp mp4_video.mp4 video_for_hevc.mp4
           else
@@ -60,11 +54,7 @@ jobs:
 
       - name: Convert to HEVC (libx265)
         run: |
-          mkdir -p logs
-          TIMESTAMP=$(TZ='Asia/Bangkok' date '+%Y-%m-%d %H:%M:%S')
-          echo "Converting to HEVC. Log: logs/${TIMESTAMP}.log"
-          ffmpeg -i video_for_hevc.mp4 -c:v libx265 -crf 28 -preset slow -c:a copy hevc_video.mp4 2>&1 | tee "logs/${TIMESTAMP}.log"
-        shell: bash
+          ffmpeg -i video_for_hevc.mp4 -c:v libx265 -crf 28 -preset slow -c:a copy hevc_video.mp4
 
       - name: Upload HEVC Video Artifact
         uses: actions/upload-artifact@v4
