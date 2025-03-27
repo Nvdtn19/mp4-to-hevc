@@ -6,10 +6,10 @@ on:
       video_url:
         description: 'Direct URL of the video to process'
         required: true
-      quality:
-        description: 'Output quality: preserve, 720p, 1080p, or 4K'
+      resolution:
+        description: 'Output resolution: original, 720p, 1080p, or 4k'
         required: true
-        default: 'preserve'
+        default: 'original'
       fps:
         description: 'Frame rate for output video (24, 30, or 60)'
         required: true
@@ -18,6 +18,14 @@ on:
         description: 'CRF value for HEVC encoding'
         required: true
         default: '33'
+      custom_name:
+        description: 'Custom final video name prefix (leave empty to use date/time)'
+        required: false
+        default: ''
+      reencode:
+        description: 'Reencode video to MP4 before HEVC conversion? (yes/no)'
+        required: true
+        default: 'no'
 
 jobs:
   convert:
@@ -36,41 +44,64 @@ jobs:
           echo "Downloading video from '${{ github.event.inputs.video_url }}'"
           curl -L "${{ github.event.inputs.video_url }}" -o input_video
 
-      - name: Convert to MP4 (Always)
+      - name: Reencode to MP4 (Optional)
+        if: ${{ github.event.inputs.reencode == 'yes' }}
         run: |
-          echo "Re-encoding video to MP4..."
-          # Determine scaling filter based on quality input
-          if [ "${{ github.event.inputs.quality }}" = "preserve" ]; then
+          echo "Re-encoding video to MP4 with resolution '${{ github.event.inputs.resolution }}' and ${{
+            github.event.inputs.fps
+          }}fps..."
+          # Determine scaling filter based on resolution input
+          if [ "${{ github.event.inputs.resolution }}" = "original" ]; then
             SCALE=""
-          elif [ "${{ github.event.inputs.quality }}" = "720p" ]; then
+          elif [ "${{ github.event.inputs.resolution }}" = "720p" ]; then
             SCALE=",scale=-2:720"
-          elif [ "${{ github.event.inputs.quality }}" = "1080p" ]; then
+          elif [ "${{ github.event.inputs.resolution }}" = "1080p" ]; then
             SCALE=",scale=-2:1080"
-          elif [ "${{ github.event.inputs.quality }}" = "4K" ]; then
+          elif [ "${{ github.event.inputs.resolution }}" = "4k" ]; then
             SCALE=",scale=-2:2160"
           else
             SCALE=""
           fi
           ffmpeg -i input_video -vf "minterpolate=fps=${{ github.event.inputs.fps }}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir${SCALE}" -c:v libx264 -crf 28 -preset veryslow -c:a aac -b:a 128k mp4_video.mp4
 
-      - name: Convert MP4 to HEVC (H.265)
+      - name: Convert to HEVC (H.265)
         run: |
-          echo "Converting MP4 to HEVC..."
-          if [ "${{ github.event.inputs.quality }}" = "preserve" ]; then
+          echo "Starting HEVC conversion..."
+          # Choose the input file based on reencode flag
+          if [ "${{ github.event.inputs.reencode }}" = "yes" ]; then
+            INPUT_FILE="mp4_video.mp4"
+          else
+            INPUT_FILE="input_video"
+          fi
+
+          # Determine scaling filter based on resolution input
+          if [ "${{ github.event.inputs.resolution }}" = "original" ]; then
             SCALE=""
-          elif [ "${{ github.event.inputs.quality }}" = "720p" ]; then
+          elif [ "${{ github.event.inputs.resolution }}" = "720p" ]; then
             SCALE=",scale=-2:720"
-          elif [ "${{ github.event.inputs.quality }}" = "1080p" ]; then
+          elif [ "${{ github.event.inputs.resolution }}" = "1080p" ]; then
             SCALE=",scale=-2:1080"
-          elif [ "${{ github.event.inputs.quality }}" = "4K" ]; then
+          elif [ "${{ github.event.inputs.resolution }}" = "4k" ]; then
             SCALE=",scale=-2:2160"
           else
             SCALE=""
           fi
-          ffmpeg -i mp4_video.mp4 -vf "minterpolate=fps=${{ github.event.inputs.fps }}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir${SCALE}" -c:v libx265 -crf ${{ github.event.inputs.hevc_crf }} -preset veryslow -c:a aac -b:a 128k hevc_video_${{ github.event.inputs.fps }}fps.mp4
+
+          # Determine final filename prefix
+          if [ -z "${{ github.event.inputs.custom_name }}" ]; then
+            PREFIX=$(date +'%F_%T')
+          else
+            PREFIX="${{ github.event.inputs.custom_name }}"
+          fi
+
+          FINAL_NAME="${PREFIX}_hevc_${{ github.event.inputs.resolution }}_${{ github.event.inputs.fps }}fps.mp4"
+          echo "Final file name will be: ${FINAL_NAME}"
+
+          ffmpeg -i ${INPUT_FILE} -vf "minterpolate=fps=${{ github.event.inputs.fps }}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir${SCALE}" -c:v libx265 -crf ${{ github.event.inputs.hevc_crf }} -preset veryslow -c:a aac -b:a 128k "${FINAL_NAME}"
 
       - name: Upload HEVC Video Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hevc_video_${{ github.event.inputs.fps }}fps
-          path: hevc_video_${{ github.event.inputs.fps }}fps.mp4
+          name: hevc_video
+          path: |
+            ls -1 *_hevc_*_${{ github.event.inputs.fps }}fps.mp4
