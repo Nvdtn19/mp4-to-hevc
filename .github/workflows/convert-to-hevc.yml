@@ -89,7 +89,7 @@ jobs:
 
           # Determine final filename prefix
           if [ -z "${{ github.event.inputs.custom_name }}" ]; then
-            PREFIX=$(date +'%F_%T')
+            PREFIX=$(date +'%F_%H-%M-%S')
           else
             PREFIX="${{ github.event.inputs.custom_name }}"
           fi
