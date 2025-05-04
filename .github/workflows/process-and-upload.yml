@@ -1,0 +1,38 @@
+name: Process Video & Upload to Archive.org
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: "Direct URL of the video to process"
+        required: true
+      ffmpeg_command:
+        description: "Optional FFmpeg command (default: convert to MP4)"
+        default: "-c:v libx264 -crf 23 -preset fast -c:a aac -b:a 128k"
+        required: false
+
+jobs:
+  process-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Download video
+        run: |
+          wget -O input_video "${{ github.event.inputs.video_url }}"
+
+      - name: Process video with FFmpeg
+        run: |
+          ffmpeg -i input_video ${{ github.event.inputs.ffmpeg_command }} output_video.mp4
+
+      - name: Upload to Archive.org
+        uses: palewire/internet-archive-upload@v1
+        with:
+          access-key: ${{ secrets.IA_ACCESS_KEY }}
+          secret-key: ${{ secrets.IA_SECRET_KEY }}
+          identifier: "main_20250416"  # Your Archive.org item
+          files: "output_video.mp4"
