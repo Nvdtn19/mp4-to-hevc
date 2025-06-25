@@ -1,0 +1,136 @@
+name: Download and Upload Multiple Files to Archive.org
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_urls:
+        description: 'Comma-separated direct URLs of the files to download'
+        required: true
+        type: string
+      archive_identifier:
+        description: 'Unique identifier for the Archive.org item (e.g., cert_20250625)'
+        required: true
+        type: string
+      page_title:
+        description: 'Page Title for the Archive.org item'
+        required: true
+        type: string
+      description:
+        description: 'Description for the Archive.org item'
+        required: false
+        default: 'Automatically uploaded files from GitHub Actions'
+        type: string
+      subject_tags:
+        description: 'Comma-separated subject tags (e.g., cert, documentation)'
+        required: false
+        default: ''
+        type: string
+      creator:
+        description: 'Creator of the content'
+        required: false
+        default: 'GitHub Actions Bot'
+        type: string
+      date_created:
+        description: 'Date work was created/published (YYYY-MM-DD)'
+        required: false
+        default: ''
+        type: string
+      collection:
+        description: 'Archive.org collection (e.g., opensource_web_archive)'
+        required: true
+        type: string
+      language:
+        description: 'Language of the work (e.g., eng)'
+        required: false
+        default: 'eng'
+        type: string
+      license:
+        description: 'License for the work (e.g., Public Domain)'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Internet Archive CLI
+        run: pip install internetarchive
+
+      - name: Set up Archive.org credentials
+        env:
+          IA_S3_KEY: ${{ secrets.ARCHIVE_S3_KEY }}
+          IA_S3_SECRET: ${{ secrets.ARCHIVE_S3_SECRET }}
+        run: |
+          if [ -z "$IA_S3_KEY" ] || [ -z "$IA_S3_SECRET" ]; then
+            echo "::error::Archive.org S3 Key and/or Secret are not set in GitHub Secrets."
+            exit 1
+          fi
+          echo "Archive.org credentials are set."
+
+      - name: Download all files
+        id: download_files
+        run: |
+          # Split the comma-separated URLs into an array
+          IFS=',' read -ra ADDR <<< "${{ github.event.inputs.file_urls }}"
+          
+          DOWNLOADED_FILES=""
+          for URL in "${ADDR[@]}"; do
+            URL=$(echo "$URL" | xargs) # Trim whitespace
+            if [ -z "$URL" ]; then
+              continue # Skip empty URLs if any
+            fi
+            FILE_NAME=$(basename "$URL")
+            echo "Attempting to download: $URL to $FILE_NAME"
+            wget -O "$FILE_NAME" "$URL"
+            if [ $? -ne 0 ]; then
+              echo "::error::Failed to download $URL"
+              exit 1
+            fi
+            DOWNLOADED_FILES="$DOWNLOADED_FILES $FILE_NAME"
+          done
+          echo "downloaded_file_names=$DOWNLOADED_FILES" >> "$GITHUB_OUTPUT"
+          echo "All files downloaded successfully: $DOWNLOADED_FILES"
+        
+      - name: Upload to Archive.org
+        env:
+          IA_S3_KEY: ${{ secrets.ARCHIVE_S3_KEY }}
+          IA_S3_SECRET: ${{ secrets.ARCHIVE_S3_SECRET }}
+        run: |
+          DOWNLOADED_FILE_LIST="${{ steps.download_files.outputs.downloaded_file_names }}"
+          
+          # Construct the metadata arguments dynamically
+          METADATA_ARGS=""
+          METADATA_ARGS+=" --title \"${{ github.event.inputs.page_title }}\""
+          METADATA_ARGS+=" --description \"${{ github.event.inputs.description }}\""
+          if [ -n "${{ github.event.inputs.subject_tags }}" ]; then
+            METADATA_ARGS+=" --subject \"${{ github.event.inputs.subject_tags }}\""
+          fi
+          if [ -n "${{ github.event.inputs.creator }}" ]; then
+            METADATA_ARGS+=" --creator \"${{ github.event.inputs.creator }}\""
+          fi
+          if [ -n "${{ github.event.inputs.date_created }}" ]; then
+            METADATA_ARGS+=" --date \"${{ github.event.inputs.date_created }}\""
+          fi
+          if [ -n "${{ github.event.inputs.language }}" ]; then
+            METADATA_ARGS+=" --language \"${{ github.event.inputs.language }}\""
+          fi
+          if [ -n "${{ github.event.inputs.license }}" ]; then
+            METADATA_ARGS+=" --license \"${{ github.event.inputs.license }}\""
+          fi
+
+          echo "Uploading files for Archive.org identifier: ${{ github.event.inputs.archive_identifier }}"
+          echo "Collection: ${{ github.event.inputs.collection }}"
+          echo "Metadata args: $METADATA_ARGS"
+          echo "Files to upload: $DOWNLOADED_FILE_LIST"
+
+          # ia upload takes multiple files as arguments
+          ia upload "${{ github.event.inputs.archive_identifier }}" $DOWNLOADED_FILE_LIST \
+            --collection "${{ github.event.inputs.collection }}" \
+            $METADATA_ARGS \
+            --checksum # Checksum for all files
+          echo "Upload complete."
