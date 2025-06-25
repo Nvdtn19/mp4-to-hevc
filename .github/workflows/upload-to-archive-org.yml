@@ -63,8 +63,8 @@ jobs:
 
       - name: Set up Archive.org credentials
         env:
-          IA_S3_KEY: ${{ secrets.ARCHIVE_S3_KEY }}
-          IA_S3_SECRET: ${{ secrets.ARCHIVE_S3_SECRET }}
+          IA_S3_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_S3_SECRET: ${{ secrets.IA_SECRET_KEY }}
         run: |
           if [ -z "$IA_S3_KEY" ] || [ -z "$IA_S3_SECRET" ]; then
             echo "::error::Archive.org S3 Key and/or Secret are not set in GitHub Secrets."
@@ -98,8 +98,8 @@ jobs:
         
       - name: Upload to Archive.org
         env:
-          IA_S3_KEY: ${{ secrets.ARCHIVE_S3_KEY }}
-          IA_S3_SECRET: ${{ secrets.ARCHIVE_S3_SECRET }}
+          IA_S3_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_S3_SECRET: ${{ secrets.IA_SECRET_KEY }}
         run: |
           DOWNLOADED_FILE_LIST="${{ steps.download_files.outputs.downloaded_file_names }}"
           
