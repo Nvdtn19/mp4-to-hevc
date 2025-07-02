@@ -103,4 +103,3 @@ jobs:
             --metadata="subject:$UPLOAD_SUBJECTS" \
             --metadata="creator:${{ github.event.inputs.creator || 'GitHub Action' }}" \
             --metadata="date:$UPLOAD_DATE" \
-            --verbose
