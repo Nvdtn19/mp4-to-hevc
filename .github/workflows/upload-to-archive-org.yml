@@ -1,161 +1,113 @@
-name: Download and Upload Multiple Files to Archive.org
+name: Upload to Archive.org
 
 on:
   workflow_dispatch:
     inputs:
       file_urls:
-        description: 'Comma-separated direct URLs of the files to download'
+        description: 'File URLs (space-separated)'
         required: true
-        type: string
-      archive_identifier:
-        description: 'Unique identifier for the Archive.org item (e.g., cert_20250625)'
-        required: true
-        type: string
       page_title:
-        description: 'Page Title for the Archive.org item'
+        description: 'Page Title'
         required: true
-        type: string
+      page_url:
+        description: 'Page URL (optional, leave blank for default)'
+        required: false
       description:
-        description: 'Description for the Archive.org item'
-        required: false
-        default: 'Automatically uploaded files from GitHub Actions'
-        type: string
+        description: 'Description'
+        required: true
       subject_tags:
-        description: 'Comma-separated subject tags (e.g., cert, documentation)'
+        description: 'Subject Tags (comma-separated)'
         required: false
-        default: ''
-        type: string
       creator:
-        description: 'Creator of the content'
+        description: 'Creator'
         required: false
-        default: 'GitHub Actions Bot'
-        type: string
-      date_created:
-        description: 'Date work was created/published (YYYY-MM-DD)'
+      publish_date:
+        description: 'Date (YYYY-MM-DD)'
         required: false
-        default: '' # Defaults to current date if not provided in the ia upload command
-        type: string
       collection:
-        description: 'Choose an Archive.org collection to upload to. Select a general one if unsure.'
+        description: 'Collection'
         required: true
         type: choice
         options:
-          - opensource_web_archive
-          - community_texts
-          - community_video
-          - community_audio
-          - community_images
-          - softwarelibrary
-          - classicpcgames
-          - classic_animations
-          - console_living_room
-          - ms_dos_games
-          - magazines
-          - maps
-          - microfilmed_newspapers
-          - radio_programs
-          - web # for web archives, though often requires specific tools like ArchiveBot
-          - public_domain_archive # Often for public domain books/media
-          - archive_digitized_books # For digitized books
-          # Add more common collections here as needed
-      language:
-        description: 'Language of the work (e.g., eng)'
-        required: false
-        default: 'eng'
-        type: string
+        - community
+        - opensource_media
+        - opensource_audio
+        - opensource_movies
+        - opensource_software
+        - opensource_image
+        - etree
+        - publicdomain
+      test_item:
+        description: 'Is this a Test Item?'
+        required: true
+        type: choice
+        options:
+        - 'No'
+        - 'Yes (will be removed after 30 days)'
       license:
-        description: 'License for the work (e.g., Public Domain)'
-        required: false
-        default: ''
-        type: string
+        description: 'License'
+        required: true
+        type: choice
+        options:
+        - 'http://creativecommons.org/licenses/by/4.0/' # CC BY
+        - 'http://creativecommons.org/licenses/by-sa/4.0/' # CC BY-SA
+        - 'http://creativecommons.org/licenses/by-nc/4.0/' # CC BY-NC
+        - 'http://creativecommons.org/licenses/by-nc-sa/4.0/' # CC BY-NC-SA
+        - 'http://creativecommons.org/publicdomain/zero/1.0/' # CC0
+        - 'http://creativecommons.org/publicdomain/mark/1.0/' # Public Domain
 
 jobs:
-  upload:
+  upload_to_archiveorg:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v3
 
-      - name: Install Internet Archive CLI
-        run: pip install internetarchive
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
 
-      - name: Set up Archive.org credentials
-        env:
-          IA_S3_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_S3_SECRET: ${{ secrets.IA_SECRET_KEY }}
-        run: |
-          if [ -z "$IA_S3_KEY" ] || [ -z "$IA_S3_SECRET" ]; then
-            echo "::error::Archive.org S3 Key and/or Secret are not set in GitHub Secrets."
-            exit 1
-          fi
-          echo "Archive.org credentials are set."
+    - name: Install internetarchive
+      run: pip install internetarchive
 
-      - name: Download all files
-        id: download_files
-        run: |
-          # Split the comma-separated URLs into an array
-          IFS=',' read -ra ADDR <<< "${{ github.event.inputs.file_urls }}"
-          
-          DOWNLOADED_FILES=""
-          for URL in "${ADDR[@]}"; do
-            URL=$(echo "$URL" | xargs) # Trim whitespace
-            if [ -z "$URL" ]; then
-              continue # Skip empty URLs if any
-            fi
-            FILE_NAME=$(basename "$URL")
-            echo "Attempting to download: $URL to $FILE_NAME"
-            wget -O "$FILE_NAME" "$URL"
-            if [ $? -ne 0 ]; then
-              echo "::error::Failed to download $URL"
-              exit 1
-            fi
-            DOWNLOADED_FILES="$DOWNLOADED_FILES $FILE_NAME"
-          done
-          echo "downloaded_file_names=$DOWNLOADED_FILES" >> "$GITHUB_OUTPUT"
-          echo "All files downloaded successfully: $DOWNLOADED_FILES"
+    - name: Configure internetarchive tool
+      env:
+        IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+        IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+      run: |
+        echo "[s3]" > ~/.ia
+        echo "access = $IA_ACCESS_KEY" >> ~/.ia
+        echo "secret = $IA_SECRET_KEY" >> ~/.ia
+
+    - name: Download and Upload files
+      run: |
+        IDENTIFIER="${{ github.event.inputs.page_url || '' }}"
+        if [ -z "$IDENTIFIER" ]; then
+          IDENTIFIER=$(echo "${{ github.event.inputs.page_title }}" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+        fi
+
+        METADATA=(
+          "--metadata=title:${{ github.event.inputs.page_title }}"
+          "--metadata=description:${{ github.event.inputs.description }}"
+          "--metadata=creator:${{ github.event.inputs.creator }}"
+          "--metadata=date:${{ github.event.inputs.publish_date }}"
+          "--metadata=subject:${{ github.event.inputs.subject_tags }}"
+          "--metadata=collection:${{ github.event.inputs.collection }}"
+          "--metadata=licenseurl:${{ github.event.inputs.license }}"
+        )
         
-      - name: Upload to Archive.org
-        env:
-          IA_S3_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_S3_SECRET: ${{ secrets.IA_SECRET_KEY }}
-        run: |
-          DOWNLOADED_FILE_LIST="${{ steps.download_files.outputs.downloaded_file_names }}"
-          
-          echo "Uploading files for Archive.org identifier: ${{ github.event.inputs.archive_identifier }}"
-          echo "Collection: ${{ github.event.inputs.collection }}"
-          echo "Files to upload: $DOWNLOADED_FILE_LIST"
+        # Add test_item metadata only if 'Yes' is selected
+        if [[ "${{ github.event.inputs.test_item }}" == "Yes (will be removed after 30 days)" ]]; then
+          METADATA+=("--metadata=test_item:true")
+        fi
 
-          # Build the ia upload command dynamically based on non-empty inputs
-          IA_UPLOAD_COMMAND="ia upload \"${{ github.event.inputs.archive_identifier }}\" $DOWNLOADED_FILE_LIST"
-          IA_UPLOAD_COMMAND+=" --collection \"${{ github.event.inputs.collection }}\""
+        URLS=(${{ github.event.inputs.file_urls }})
+        FILES_TO_UPLOAD=()
+        for url in "${URLS[@]}"; do
+          wget "$url"
+          FILENAME=$(basename "$url")
+          FILES_TO_UPLOAD+=("$FILENAME")
+        done
 
-          # Conditionally add metadata arguments if they are not empty
-          if [ -n "${{ github.event.inputs.page_title }}" ]; then
-            IA_UPLOAD_COMMAND+=" --title \"${{ github.event.inputs.page_title }}\""
-          fi
-          if [ -n "${{ github.event.inputs.description }}" ]; then
-            IA_UPLOAD_COMMAND+=" --description \"${{ github.event.inputs.description }}\""
-          fi
-          if [ -n "${{ github.event.inputs.subject_tags }}" ]; then
-            IA_UPLOAD_COMMAND+=" --subject \"${{ github.event.inputs.subject_tags }}\""
-          fi
-          if [ -n "${{ github.event.inputs.creator }}" ]; then
-            IA_UPLOAD_COMMAND+=" --creator \"${{ github.event.inputs.creator }}\""
-          fi
-          if [ -n "${{ github.event.inputs.date_created }}" ]; then
-            IA_UPLOAD_COMMAND+=" --date \"${{ github.event.inputs.date_created }}\""
-          fi
-          if [ -n "${{ github.event.inputs.language }}" ]; then
-            IA_UPLOAD_COMMAND+=" --language \"${{ github.event.inputs.language }}\""
-          fi
-          if [ -n "${{ github.event.inputs.license }}" ]; then
-            IA_UPLOAD_COMMAND+=" --license \"${{ github.event.inputs.license }}\""
-          fi
-
-          IA_UPLOAD_COMMAND+=" --checksum" # Always include checksum
-
-          echo "Executing command: $IA_UPLOAD_COMMAND"
-          eval $IA_UPLOAD_COMMAND # Use eval to execute the dynamically built command
-          
-          echo "Upload complete."
+        ia upload "$IDENTIFIER" "${FILES_TO_UPLOAD[@]}" "${METADATA[@]}"
