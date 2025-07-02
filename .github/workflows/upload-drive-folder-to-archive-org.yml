@@ -45,10 +45,6 @@ on:
         description: 'Date work was created/published (YYYY-MM-DD)'
         required: false
         type: string
-      archive_language:
-        description: 'Language of the work (3-letter code, e.g., eng)'
-        required: false
-        type: string
       archive_test_item:
         description: 'Is this a test item?'
         required: true
@@ -163,9 +159,6 @@ jobs:
           fi
           if [[ -n "${{ github.event.inputs.archive_date }}" ]]; then
             CMD="$CMD --metadata=\"date:${{ github.event.inputs.archive_date }}\""
-          fi
-          if [[ -n "${{ github.event.inputs.archive_language }}" ]]; then
-            CMD="$CMD --metadata=\"language:${{ github.event.inputs.archive_language }}\""
           fi
 
           # Handle Test Item selection
