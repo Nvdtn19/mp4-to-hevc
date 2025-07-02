@@ -75,17 +75,15 @@ jobs:
         uses: actions/checkout@v4
 
       # Step 2: Install latest rclone manually
-      # This replaces the 'uses: rclone/rclone-action' to avoid linter errors.
       - name: Install latest rclone
         run: |
           curl https://rclone.org/install.sh | sudo bash
 
-      # Step 3: Create rclone config file from secret
-      # The linter might warn about secrets.RCLONE_CONF, but this is the correct syntax.
-      # Secrets are only available at runtime.
-      - name: Create rclone config
+      # Step 3: Decode rclone config from Base64 secret
+      # This is a robust way to handle the config file without copy-paste errors.
+      - name: Create rclone config from secret
         run: |
-          echo "${{ secrets.RCLONE_CONF }}" > rclone.conf
+          echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > rclone.conf
 
       # Step 4: Install internetarchive tool
       - name: Install internetarchive tool
@@ -143,8 +141,6 @@ jobs:
           fi
 
           # Start with the base command and required metadata
-          # The linter might warn about env.ARCHIVE_ID_FINAL and env.formatted_tags, 
-          # but this is the correct way to access variables set in previous steps via GITHUB_ENV.
           CMD="ia --config-file ./ia.cfg upload ${{ env.ARCHIVE_ID_FINAL }} gdrive_files/ \
             --metadata=\"title:${{ github.event.inputs.archive_title }}\" \
             --metadata=\"collection:$ARCHIVE_COLLECTION\" \
