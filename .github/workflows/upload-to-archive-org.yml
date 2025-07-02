@@ -36,9 +36,28 @@ on:
         default: '' # Defaults to current date if not provided in the ia upload command
         type: string
       collection:
-        description: 'Archive.org collection (e.g., opensource_web_archive)'
+        description: 'Choose an Archive.org collection to upload to. Select a general one if unsure.'
         required: true
-        type: string
+        type: choice
+        options:
+          - opensource_web_archive
+          - community_texts
+          - community_video
+          - community_audio
+          - community_images
+          - softwarelibrary
+          - classicpcgames
+          - classic_animations
+          - console_living_room
+          - ms_dos_games
+          - magazines
+          - maps
+          - microfilmed_newspapers
+          - radio_programs
+          - web # for web archives, though often requires specific tools like ArchiveBot
+          - public_domain_archive # Often for public domain books/media
+          - archive_digitized_books # For digitized books
+          # Add more common collections here as needed
       language:
         description: 'Language of the work (e.g., eng)'
         required: false
@@ -61,7 +80,6 @@ jobs:
       - name: Install Internet Archive CLI
         run: pip install internetarchive
 
-      # --- START of changed section for secrets ---
       - name: Set up Archive.org credentials
         env:
           IA_S3_KEY: ${{ secrets.IA_ACCESS_KEY }}
@@ -72,7 +90,6 @@ jobs:
             exit 1
           fi
           echo "Archive.org credentials are set."
-      # --- END of changed section for secrets ---
 
       - name: Download all files
         id: download_files
@@ -100,8 +117,8 @@ jobs:
         
       - name: Upload to Archive.org
         env:
-          IA_S3_KEY: ${{ secrets.IA_ACCESS_KEY }} # Changed this line too
-          IA_S3_SECRET: ${{ secrets.IA_SECRET_KEY }} # Changed this line too
+          IA_S3_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_S3_SECRET: ${{ secrets.IA_SECRET_KEY }}
         run: |
           DOWNLOADED_FILE_LIST="${{ steps.download_files.outputs.downloaded_file_names }}"
           
@@ -109,15 +126,36 @@ jobs:
           echo "Collection: ${{ github.event.inputs.collection }}"
           echo "Files to upload: $DOWNLOADED_FILE_LIST"
 
-          # Use a direct, single command for ia upload, passing arguments individually
-          ia upload "${{ github.event.inputs.archive_identifier }}" $DOWNLOADED_FILE_LIST \
-            --collection "${{ github.event.inputs.collection }}" \
-            --title "${{ github.event.inputs.page_title }}" \
-            --description "${{ github.event.inputs.description }}" \
-            --subject "${{ github.event.inputs.subject_tags }}" \
-            --creator "${{ github.event.inputs.creator }}" \
-            --date "${{ github.event.inputs.date_created }}" \
-            --language "${{ github.event.inputs.language }}" \
-            --license "${{ github.event.inputs.license }}" \
-            --checksum # Checksum for all files
+          # Build the ia upload command dynamically based on non-empty inputs
+          IA_UPLOAD_COMMAND="ia upload \"${{ github.event.inputs.archive_identifier }}\" $DOWNLOADED_FILE_LIST"
+          IA_UPLOAD_COMMAND+=" --collection \"${{ github.event.inputs.collection }}\""
+
+          # Conditionally add metadata arguments if they are not empty
+          if [ -n "${{ github.event.inputs.page_title }}" ]; then
+            IA_UPLOAD_COMMAND+=" --title \"${{ github.event.inputs.page_title }}\""
+          fi
+          if [ -n "${{ github.event.inputs.description }}" ]; then
+            IA_UPLOAD_COMMAND+=" --description \"${{ github.event.inputs.description }}\""
+          fi
+          if [ -n "${{ github.event.inputs.subject_tags }}" ]; then
+            IA_UPLOAD_COMMAND+=" --subject \"${{ github.event.inputs.subject_tags }}\""
+          fi
+          if [ -n "${{ github.event.inputs.creator }}" ]; then
+            IA_UPLOAD_COMMAND+=" --creator \"${{ github.event.inputs.creator }}\""
+          fi
+          if [ -n "${{ github.event.inputs.date_created }}" ]; then
+            IA_UPLOAD_COMMAND+=" --date \"${{ github.event.inputs.date_created }}\""
+          fi
+          if [ -n "${{ github.event.inputs.language }}" ]; then
+            IA_UPLOAD_COMMAND+=" --language \"${{ github.event.inputs.language }}\""
+          fi
+          if [ -n "${{ github.event.inputs.license }}" ]; then
+            IA_UPLOAD_COMMAND+=" --license \"${{ github.event.inputs.license }}\""
+          fi
+
+          IA_UPLOAD_COMMAND+=" --checksum" # Always include checksum
+
+          echo "Executing command: $IA_UPLOAD_COMMAND"
+          eval $IA_UPLOAD_COMMAND # Use eval to execute the dynamically built command
+          
           echo "Upload complete."
