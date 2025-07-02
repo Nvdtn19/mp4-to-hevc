@@ -143,7 +143,8 @@ jobs:
     - name: Prepare All Metadata
       id: prepare_metadata # ID for accessing outputs
       env:
-        ADDITIONAL_JSON_INPUT: ${{ github.event.inputs.additional_metadata_json }} # Pass JSON to python via env
+        # Pass the JSON input as an environment variable to the Python script
+        ADDITIONAL_JSON_INPUT: ${{ github.event.inputs.additional_metadata_json }}
       run: |
         METADATA_ARGS_ARRAY=()
         
@@ -185,44 +186,24 @@ jobs:
           METADATA_ARGS_ARRAY+=("--metadata=test_item:true")
         fi
         
-        # Parse additional_metadata_json if provided
-        ADDITIONAL_JSON='${{ github.event.inputs.additional_metadata_json }}'
-        if [[ -n "$ADDITIONAL_JSON" ]]; then
-          echo "Parsing additional metadata from JSON..."
-          # Use Python to parse JSON and convert to --metadata flags
-          python3 -c "
-import json
-import os
-
-json_str = os.environ.get('ADDITIONAL_JSON_INPUT')
-output_args = []
-if json_str:
-    try:
-        data = json.loads(json_str)
-        for key, value in data.items():
-            # Basic sanitization, but complex values might need more.
-            # Here, ensure value is treated as a string for safety.
-            output_args.append(f'--metadata={key}:{str(value)}')
-        print('ADDITIONAL_METADATA_FLAGS=' + ' '.join(output_args))
-    except json.JSONDecodeError as e:
-        # Use GitHub Actions' error logging syntax
-        print(f'::error::Error decoding JSON for additional_metadata_json: {e}')
-        exit 1
-" > additional_metadata_flags.txt
+        # --- Execute the new Python script to parse additional_metadata_json ---
+        # It will print 'ADDITIONAL_METADATA_FLAGS=' followed by the flags
+        python3 ./script/parse_metadata.py > additional_metadata_flags.txt
           
-          # Capture the output from the Python script
-          ADDITIONAL_METADATA_FLAGS=$(cat additional_metadata_flags.txt | grep 'ADDITIONAL_METADATA_FLAGS=' | sed 's/ADDITIONAL_METADATA_FLAGS=//')
-          
-          # Add the parsed flags to our array
-          # Read the space-separated string back into a new array, then append to main array
-          IFS=' ' read -r -a PARSED_FLAGS_ARRAY <<< "$ADDITIONAL_METADATA_FLAGS"
-          for flag in "${PARSED_FLAGS_ARRAY[@]}"; do
-            METADATA_ARGS_ARRAY+=("$flag")
-          done
-        fi
+        # Capture the output from the Python script
+        ADDITIONAL_METADATA_FLAGS=$(cat additional_metadata_flags.txt | grep 'ADDITIONAL_METADATA_FLAGS=' | sed 's/ADDITIONAL_METADATA_FLAGS=//')
+        
+        # Add the parsed flags to our array
+        # Read the space-separated string back into a new array, then append to main array
+        IFS=' ' read -r -a PARSED_FLAGS_ARRAY <<< "$ADDITIONAL_METADATA_FLAGS"
+        for flag in "${PARSED_FLAGS_ARRAY[@]}"; do
+          METADATA_ARGS_ARRAY+=("$flag")
+        done
 
         # Output the full array of metadata arguments as a single space-separated string
-        echo "all_metadata_args=${METADATA_ARGS_ARRAY[*]}" >> "$GITHUB_OUTPUT"
+        # Using IFS to handle spaces within individual metadata values
+        printf "%s\n" "${METADATA_ARGS_ARRAY[@]}" > combined_metadata_args.txt
+        echo "all_metadata_args=$(cat combined_metadata_args.txt | xargs echo)" >> "$GITHUB_OUTPUT"
 
 
     # --- Step 4: Upload files to Archive.org (Common Step) ---
@@ -258,7 +239,11 @@ if json_str:
         fi
 
         # Get all metadata arguments from the previous 'Prepare All Metadata' step
-        ALL_METADATA_FLAGS="${{ steps.prepare_metadata.outputs.all_metadata_args }}"
+        # Note: The xargs echo in the previous step ensures this is space-separated
+        ALL_METADATA_FLAGS_STR="${{ steps.prepare_metadata.outputs.all_metadata_args }}"
+        
+        # Split the string into an array, respecting spaces within quoted arguments
+        IFS=$'\n' read -r -d '' -a ALL_METADATA_FLAGS_ARRAY < <(printf "%s" "$ALL_METADATA_FLAGS_STR" | xargs -n 1 printf "%s\n")
 
         # Execute ia upload with all files and metadata flags
-        ia upload "$IDENTIFIER" "${FILES_TO_UPLOAD[@]}" $ALL_METADATA_FLAGS
+        ia upload "$IDENTIFIER" "${FILES_TO_UPLOAD[@]}" "${ALL_METADATA_FLAGS_ARRAY[@]}"
