@@ -57,7 +57,7 @@ on:
           - 'Creative Commons Attribution-NonCommercial-ShareAlike (Allow Remixing, require Share-Alike, Prohibit Commercial Use)'
           - 'Creative Commons Attribution-NonCommercial-NoDerivs (No Remixing, Prohibit Commercial Use)'
           - 'Public Domain'
-      # Consolidated optional metadata into one JSON string input
+      # Consolidated optional metadata into one JSON string input (10th input)
       additional_metadata_json:
         description: 'Optional metadata (JSON, e.g., {"creator": "John Doe", "date": "2023-01-01", "subject": "tag1,tag2"})'
         required: false
@@ -188,10 +188,12 @@ jobs:
         
         # --- Execute the new Python script to parse additional_metadata_json ---
         # It will print 'ADDITIONAL_METADATA_FLAGS=' followed by the flags
-        python3 ./script/parse_metadata.py > additional_metadata_flags.txt
+        # The output is captured to a temporary file, then read back.
+        python3 ./script/parse_metadata.py > additional_metadata_flags.txt 2>&1
           
         # Capture the output from the Python script
-        ADDITIONAL_METADATA_FLAGS=$(cat additional_metadata_flags.txt | grep 'ADDITIONAL_METADATA_FLAGS=' | sed 's/ADDITIONAL_METADATA_FLAGS=//')
+        # Grep for the specific line to avoid capturing potential ::error:: messages if JSON parsing failed
+        ADDITIONAL_METADATA_FLAGS=$(grep 'ADDITIONAL_METADATA_FLAGS=' additional_metadata_flags.txt | sed 's/ADDITIONAL_METADATA_FLAGS=//')
         
         # Add the parsed flags to our array
         # Read the space-separated string back into a new array, then append to main array
@@ -201,7 +203,7 @@ jobs:
         done
 
         # Output the full array of metadata arguments as a single space-separated string
-        # Using IFS to handle spaces within individual metadata values
+        # Using printf "%s\n" and xargs echo ensures elements are space-separated and quoted if they contain spaces.
         printf "%s\n" "${METADATA_ARGS_ARRAY[@]}" > combined_metadata_args.txt
         echo "all_metadata_args=$(cat combined_metadata_args.txt | xargs echo)" >> "$GITHUB_OUTPUT"
 
@@ -239,11 +241,18 @@ jobs:
         fi
 
         # Get all metadata arguments from the previous 'Prepare All Metadata' step
-        # Note: The xargs echo in the previous step ensures this is space-separated
         ALL_METADATA_FLAGS_STR="${{ steps.prepare_metadata.outputs.all_metadata_args }}"
         
         # Split the string into an array, respecting spaces within quoted arguments
+        # This is crucial for correctly passing arguments to 'ia upload'
         IFS=$'\n' read -r -d '' -a ALL_METADATA_FLAGS_ARRAY < <(printf "%s" "$ALL_METADATA_FLAGS_STR" | xargs -n 1 printf "%s\n")
 
+        echo "--- Debugging ia upload ---"
+        echo "Identifier: $IDENTIFIER"
+        echo "Files to upload: ${FILES_TO_UPLOAD[@]}"
+        echo "Metadata flags: ${ALL_METADATA_FLAGS_ARRAY[@]}" # This will print each element on a new line
+        echo "--------------------------"
+
         # Execute ia upload with all files and metadata flags
-        ia upload "$IDENTIFIER" "${FILES_TO_UPLOAD[@]}" "${ALL_METADATA_FLAGS_ARRAY[@]}"
+        # The '2>&1' redirects stderr to stdout so all output is visible in GitHub Actions logs
+        ia upload "$IDENTIFIER" "${FILES_TO_UPLOAD[@]}" "${ALL_METADATA_FLAGS_ARRAY[@]}" 2>&1
