@@ -24,17 +24,17 @@ on:
       publish_date:
         description: 'Date (YYYY-MM-DD)'
         required: false
-      collection:
+      collection_display: # Renamed input to clearly indicate it's for display
         description: 'Collection'
         required: true
         type: choice
         options:
-          - 'opensource_media # Community data'
-          - 'opensource_texts # Community texts'
-          - 'opensource_audio # Community audio'
-          - 'opensource_movies # Community movies'
-          - 'opensource_software # Community software'
-          - 'opensource_image # Community images'
+          - 'Community data'
+          - 'Community texts'
+          - 'Community audio'
+          - 'Community movies'
+          - 'Community software'
+          - 'Community images'
       test_item:
         description: 'Is this a Test Item?'
         required: true
@@ -42,20 +42,20 @@ on:
         options:
           - 'No'
           - 'Yes (will be removed after 30 days)'
-      license:
+      license_display:
         description: 'License'
         required: true
         type: choice
         options:
-          - ' # Leave license blank' # This will show "Leave license blank" in the dropdown
-          - 'http://creativecommons.org/publicdomain/zero/1.0/ # CC0 — “No Rights Reserved”'
-          - 'http://creativecommons.org/licenses/by-nd/4.0/ # Creative Commons Attribution-NoDerivs (No Remixing)'
-          - 'http://creativecommons.org/licenses/by/4.0/ # Creative Commons Attribution (Allow Remixing)'
-          - 'http://creativecommons.org/licenses/by-sa/4.0/ # Creative Commons Attribution-ShareAlike (Allow Remixing, require Share-Alike)'
-          - 'http://creativecommons.org/licenses/by-nc/4.0/ # Creative Commons Attribution-NonCommercial (Allow Remixing, Prohibit Commercial Use)'
-          - 'http://creativecommons.org/licenses/by-nc-sa/4.0/ # Creative Commons Attribution-NonCommercial-ShareAlike (Allow Remixing, require Share-Alike, Prohibit Commercial Use)'
-          - 'http://creativecommons.org/licenses/by-nc-nd/4.0/ # Creative Commons Attribution-NonCommercial-NoDerivs (No Remixing, Prohibit Commercial Use)'
-          - 'http://creativecommons.org/publicdomain/mark/1.0/ # Public Domain'
+          - 'Leave license blank'
+          - 'CC0 — “No Rights Reserved”'
+          - 'Creative Commons Attribution-NoDerivs (No Remixing)'
+          - 'Creative Commons Attribution (Allow Remixing)'
+          - 'Creative Commons Attribution-ShareAlike (Allow Remixing, require Share-Alike)'
+          - 'Creative Commons Attribution-NonCommercial (Allow Remixing, Prohibit Commercial Use)'
+          - 'Creative Commons Attribution-NonCommercial-ShareAlike (Allow Remixing, require Share-Alike, Prohibit Commercial Use)'
+          - 'Creative Commons Attribution-NonCommercial-NoDerivs (No Remixing, Prohibit Commercial Use)'
+          - 'Public Domain'
 
 jobs:
   upload_to_archiveorg:
@@ -83,6 +83,34 @@ jobs:
 
     - name: Download and Upload files
       run: |
+        # --- Handle License Mapping ---
+        declare -A LICENSE_MAP
+        LICENSE_MAP["Leave license blank"]=""
+        LICENSE_MAP["CC0 — “No Rights Reserved”"]="http://creativecommons.org/publicdomain/zero/1.0/"
+        LICENSE_MAP["Creative Commons Attribution-NoDerivs (No Remixing)"]="http://creativecommons.org/licenses/by-nd/4.0/"
+        LICENSE_MAP["Creative Commons Attribution (Allow Remixing)"]="http://creativecommons.org/licenses/by/4.0/"
+        LICENSE_MAP["Creative Commons Attribution-ShareAlike (Allow Remixing, require Share-Alike)"]="http://creativecommons.org/licenses/by-sa/4.0/"
+        LICENSE_MAP["Creative Commons Attribution-NonCommercial (Allow Remixing, Prohibit Commercial Use)"]="http://creativecommons.org/licenses/by-nc/4.0/"
+        LICENSE_MAP["Creative Commons Attribution-NonCommercial-ShareAlike (Allow Remixing, require Share-Alike, Prohibit Commercial Use)"]="http://creativecommons.org/licenses/by-nc-sa/4.0/"
+        LICENSE_MAP["Creative Commons Attribution-NonCommercial-NoDerivs (No Remixing, Prohibit Commercial Use)"]="http://creativecommons.org/licenses/by-nc-nd/4.0/"
+        LICENSE_MAP["Public Domain"]="http://creativecommons.org/publicdomain/mark/1.0/"
+
+        SELECTED_LICENSE_DISPLAY="${{ github.event.inputs.license_display }}"
+        LICENSE_URL="${LICENSE_MAP["$SELECTED_LICENSE_DISPLAY"]}"
+
+        # --- Handle Collection Mapping ---
+        declare -A COLLECTION_MAP
+        COLLECTION_MAP["Community data"]="opensource_media"
+        COLLECTION_MAP["Community texts"]="opensource_texts"
+        COLLECTION_MAP["Community audio"]="opensource_audio"
+        COLLECTION_MAP["Community movies"]="opensource_movies"
+        COLLECTION_MAP["Community software"]="opensource_software"
+        COLLECTION_MAP["Community images"]="opensource_image"
+
+        SELECTED_COLLECTION_DISPLAY="${{ github.event.inputs.collection_display }}"
+        COLLECTION_VALUE="${COLLECTION_MAP["$SELECTED_COLLECTION_DISPLAY"]}"
+
+        # --- Remainder of the script ---
         IDENTIFIER="${{ github.event.inputs.page_url || '' }}"
         if [ -z "$IDENTIFIER" ]; then
           IDENTIFIER=$(echo "${{ github.event.inputs.page_title }}" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
@@ -94,12 +122,12 @@ jobs:
           "--metadata=creator:${{ github.event.inputs.creator }}"
           "--metadata=date:${{ github.event.inputs.publish_date }}"
           "--metadata=subject:${{ github.event.inputs.subject_tags }}"
-          "--metadata=collection:${{ github.event.inputs.collection }}"
+          "--metadata=collection:$COLLECTION_VALUE" # Use the mapped value here
         )
         
-        # Add licenseurl metadata only if a license is selected (not "Leave license blank")
-        if [[ -n "${{ github.event.inputs.license }}" ]]; then
-          METADATA+=("--metadata=licenseurl:${{ github.event.inputs.license }}")
+        # Add licenseurl metadata only if a license URL is obtained (not blank)
+        if [[ -n "$LICENSE_URL" ]]; then
+          METADATA+=("--metadata=licenseurl:$LICENSE_URL")
         fi
 
         # Add test_item metadata only if 'Yes' is selected
