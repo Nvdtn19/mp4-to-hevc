@@ -29,14 +29,12 @@ on:
         required: true
         type: choice
         options:
-        - opensource_media
-        - community
-        - opensource_audio
-        - opensource_movies
-        - opensource_software
-        - opensource_image
-        - etree
-        - publicdomain
+        - opensource_media # Community data
+        - opensource_texts # Community texts
+        - opensource_audio # Community audio
+        - opensource_movies # Community movies
+        - opensource_software # Community software
+        - opensource_image # Community images
       test_item:
         description: 'Is this a Test Item?'
         required: true
