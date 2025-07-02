@@ -1,120 +1,85 @@
-# .github/workflows/upload-drive-folder-to-archive-org.yml
 name: Upload Google Drive Folder to Archive.org
 
-# Controls when the action will run.
 on:
-  # Allows you to run this workflow manually from the Actions tab with custom inputs
   workflow_dispatch:
     inputs:
-      identifier:
-        description: 'Unique identifier for the Archive.org item (will be prefixed with "gdrive-archive-"). If blank, uses the current date.'
-        required: false
-        default: ''
-      title:
-        description: 'The title of the item on Archive.org.'
+      archive_identifier:
+        description: 'Unique ID for the Archive.org item (no spaces)'
         required: true
-        default: 'Automatic Archive of GDrive Folder'
-      collection:
-        description: 'The Archive.org collection to upload to (e.g., opensource_media, community).'
+        type: string
+      archive_title:
+        description: 'Page Title for the Archive.org item'
         required: true
-        default: 'opensource_media'
-      description:
-        description: 'A description for the item page.'
+        type: string
+      archive_collection:
+        description: 'The collection mediatype (e.g., community, data, software)'
+        required: true
+        type: string
+        default: 'community'
+      archive_description:
+        description: 'A description of the item page'
         required: false
-        default: 'This item is an automatic backup of the public Google Drive folder at https://drive.google.com/drive/folders/1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn.'
-      subjects:
-        description: 'Subject tags (keywords), separated by commas.'
+        type: string
+      archive_subjects:
+        description: 'Keywords, separated by commas (e.g., data, backup, files)'
         required: false
-        default: 'gdrive,backup,archive'
-      creator:
-        description: 'The creator of the content.'
+        type: string
+      archive_creator:
+        description: 'Creator of the content'
         required: false
-        default: 'GitHub Action'
-      date:
-        description: 'The creation/publication date of the work (YYYY-MM-DD).'
+        type: string
+      archive_date:
+        description: 'Date work was created/published (YYYY-MM-DD)'
         required: false
-        default: '' # Will default to current date in the script
-
-  # Runs the workflow automatically every Sunday at midnight UTC using default values
-  schedule:
-    - cron: '0 0 * * 0'
+        type: string
+      archive_language:
+        description: 'Language of the work (3-letter code, e.g., eng)'
+        required: false
+        type: string
 
 jobs:
   upload-to-archive:
     runs-on: ubuntu-latest
-
     steps:
-      # 1. Checkout your repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Set up Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.10'
 
-      # 3. Install dependencies
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install gdown internetarchive
 
-      # 4. Download files from Google Drive
+      - name: Create download directory
+        run: mkdir gdrive_files
+
       - name: Download files from Google Drive
         run: |
-          mkdir gdrive_downloads
-          gdown --folder https://drive.google.com/drive/folders/1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn -O ./gdrive_downloads
+          gdown --folder 'https://drive.google.com/drive/folders/1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn' -O gdrive_files
 
-      # 5. List downloaded files for debugging
-      - name: List downloaded files
-        run: ls -R ./gdrive_downloads
-
-      # 6. NEW: Configure Internet Archive CLI directly
-      # This step creates the config file for the 'ia' tool, which is more reliable
-      # than relying on environment variables that might not be picked up.
-      - name: Configure Internet Archive CLI
-        env:
-          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+      - name: Configure Archive.org CLI
         run: |
-          # First, check if the secrets are empty. This is a common cause of the error.
-          if [ -z "$IA_ACCESS_KEY" ] || [ -z "$IA_SECRET_KEY" ]; then
-            echo "::error:: IA_ACCESS_KEY or IA_SECRET_KEY is not set. Please check your repository secrets in Settings > Secrets and variables > Actions."
-            exit 1
-          fi
-          
-          # Create the configuration directory and then the configuration file.
-          mkdir -p ~/.config
-          echo "[s3]" > ~/.config/internet-archive.cfg
-          echo "access = $IA_ACCESS_KEY" >> ~/.config/internet-archive.cfg
-          echo "secret = $IA_SECRET_KEY" >> ~/.config/internet-archive.cfg
-          echo "Configuration file created successfully."
-
-      # 7. Upload to Archive.org
-      # The 'env' block is no longer needed here because the CLI is now configured.
-      - name: Upload to Archive.org
+          ia configure --access-key ${{ secrets.IA_ACCESS_KEY }} --secret-key ${{ secrets.IA_SECRET_KEY }}
+      
+      - name: Prepare Subject Tags
+        id: prep_tags
         run: |
-          # --- Set Metadata ---
-          CURRENT_DATE=$(date +%Y-%m-%d)
-          
-          IDENTIFIER_INPUT="${{ github.event.inputs.identifier }}"
-          IDENTIFIER_SUFFIX="${IDENTIFIER_INPUT:-$CURRENT_DATE}"
-          IDENTIFIER="gdrive-archive-1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn-${IDENTIFIER_SUFFIX}"
+          # The 'ia' tool expects semicolons for multiple tags.
+          # This replaces commas from the input with semicolons.
+          tags="${{ github.event.inputs.archive_subjects }}"
+          echo "formatted_tags=${tags//,/;}" >> $GITHUB_ENV
 
-          DATE_INPUT="${{ github.event.inputs.date }}"
-          UPLOAD_DATE="${DATE_INPUT:-$CURRENT_DATE}"
-
-          SUBJECTS_INPUT="${{ github.event.inputs.subjects }}"
-          UPLOAD_SUBJECTS=$(echo "${SUBJECTS_INPUT:-gdrive,backup,archive}" | tr ',' ';')
-
-          # --- Construct Upload Command ---
-          echo "Uploading to Archive.org with identifier: $IDENTIFIER"
-          
-          ia upload "$IDENTIFIER" ./gdrive_downloads/* \
-            --metadata="title:${{ github.event.inputs.title || 'Automatic Archive of GDrive Folder' }}" \
-            --metadata="collection:${{ github.event.inputs.collection || 'opensource_media' }}" \
-            --metadata="description:${{ github.event.inputs.description || 'Automatic backup of GDrive folder.' }}" \
-            --metadata="subject:$UPLOAD_SUBJECTS" \
-            --metadata="creator:${{ github.event.inputs.creator || 'GitHub Action' }}" \
-            --metadata="date:$UPLOAD_DATE"
+      - name: Upload files to Archive.org
+        run: |
+          ia upload ${{ github.event.inputs.archive_identifier }} gdrive_files/ \
+          --metadata="title:${{ github.event.inputs.archive_title }}" \
+          --metadata="collection:${{ github.event.inputs.archive_collection }}" \
+          --metadata="description:${{ github.event.inputs.archive_description }}" \
+          --metadata="subject:${{ env.formatted_tags }}" \
+          --metadata="creator:${{ github.event.inputs.archive_creator }}" \
+          --metadata="date:${{ github.event.inputs.archive_date }}" \
+          --metadata="language:${{ github.event.inputs.archive_language }}"
