@@ -70,18 +70,28 @@ jobs:
       - name: List downloaded files
         run: ls -R ./gdrive_downloads
 
-      # 6. Upload to Archive.org using user-provided or default metadata
+      # 6. (DEBUGGING STEP) Verify that secrets are not empty
+      # This step helps confirm that your secrets are correctly configured in GitHub.
+      # If the output shows 'is set:', the secret is empty.
+      # If it shows 'is set: true', the secret has a value.
+      - name: Verify Secrets
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          echo "Verifying secrets..."
+          echo "IA_ACCESS_KEY is set: ${IA_ACCESS_KEY:+true}"
+          echo "IA_SECRET_KEY is set: ${IA_SECRET_KEY:+true}"
+
+      # 7. Upload to Archive.org using user-provided or default metadata
       - name: Upload to Archive.org
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
           # --- Set Metadata ---
-          # Get the current date in YYYY-MM-DD format to use as a reliable default.
           CURRENT_DATE=$(date +%Y-%m-%d)
-
-          # Use shell parameter expansion (${VAR:-DEFAULT}) to handle defaults.
-          # This correctly separates GitHub's expression syntax from shell logic.
+          
           IDENTIFIER_INPUT="${{ github.event.inputs.identifier }}"
           IDENTIFIER_SUFFIX="${IDENTIFIER_INPUT:-$CURRENT_DATE}"
           IDENTIFIER="gdrive-archive-1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn-${IDENTIFIER_SUFFIX}"
@@ -90,14 +100,11 @@ jobs:
           UPLOAD_DATE="${DATE_INPUT:-$CURRENT_DATE}"
 
           SUBJECTS_INPUT="${{ github.event.inputs.subjects }}"
-          # The 'ia' tool expects subjects to be semicolon-separated. We convert from comma-separated.
           UPLOAD_SUBJECTS=$(echo "${SUBJECTS_INPUT:-gdrive,backup,archive}" | tr ',' ';')
 
           # --- Construct Upload Command ---
           echo "Uploading to Archive.org with identifier: $IDENTIFIER"
           
-          # This is the corrected command. It relies on the IA_ACCESS_KEY and IA_SECRET_KEY
-          # environment variables set above for authentication.
           ia upload "$IDENTIFIER" ./gdrive_downloads/* \
             --metadata="title:${{ github.event.inputs.title || 'Automatic Archive of GDrive Folder' }}" \
             --metadata="collection:${{ github.event.inputs.collection || 'opensource_media' }}" \
