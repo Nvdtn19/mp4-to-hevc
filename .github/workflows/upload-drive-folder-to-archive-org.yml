@@ -5,8 +5,37 @@ name: Upload Google Drive Folder to Archive.org
 on:
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
+    inputs:
+      identifier:
+        description: 'Unique identifier for the Archive.org item (will be prefixed with "gdrive-archive-"). If blank, uses the current date.'
+        required: false
+        default: ''
+      title:
+        description: 'The title of the item on Archive.org.'
+        required: true
+        default: 'Automatic Archive of GDrive Folder'
+      collection:
+        description: 'The Archive.org collection to upload to (e.g., opensource_media, community).'
+        required: true
+        default: 'opensource_media'
+      description:
+        description: 'A description for the item page.'
+        required: false
+        default: 'This item is an automatic backup of the public Google Drive folder at https://drive.google.com/drive/folders/1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn.'
+      subjects:
+        description: 'Subject tags (keywords), separated by commas.'
+        required: false
+        default: 'gdrive,backup,archive'
+      creator:
+        description: 'The creator of the content.'
+        required: false
+        default: 'GitHub Action'
+      date:
+        description: 'The creation/publication date of the work (YYYY-MM-DD).'
+        required: false
+        default: '' # Will default to current date in the script
 
-  # Runs the workflow automatically every Sunday at midnight UTC
+  # Runs the workflow automatically every Sunday at midnight UTC using default values
   schedule:
     - cron: '0 0 * * 0'
 
@@ -15,54 +44,58 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout your repository (not strictly necessary for this script, but good practice)
+      # 1. Checkout your repository
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Set up Python, which is needed for our command-line tools
+      # 2. Set up Python
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
-      # 3. Install the necessary Python packages
+      # 3. Install dependencies
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install gdown internetarchive
 
-      # 4. Download all files from the public Google Drive folder
+      # 4. Download files from Google Drive
       - name: Download files from Google Drive
         run: |
-          # Create a directory to store the downloaded files
           mkdir gdrive_downloads
-          # Use gdown to download the entire folder contents
           gdown --folder https://drive.google.com/drive/folders/1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn -O ./gdrive_downloads
 
-      # 5. (Optional) List downloaded files for debugging purposes
+      # 5. List downloaded files for debugging
       - name: List downloaded files
-        run: |
-          echo "The following files were downloaded:"
-          ls -R ./gdrive_downloads
+        run: ls -R ./gdrive_downloads
 
-      # 6. Upload the downloaded files to Archive.org
+      # 6. Upload to Archive.org using user-provided or default metadata
       - name: Upload to Archive.org
-        # Use environment variables to securely pass your Archive.org keys
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
-          # Create a unique identifier for the new item on Archive.org.
-          # This uses the Google Drive folder ID and the current date.
-          IDENTIFIER="gdrive-archive-1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn-$(date +%Y-%m-%d)"
-          echo "Uploading to Archive.org with identifier: $IDENTIFIER"
+          # --- Set Metadata ---
+          # Use user-provided identifier suffix, or default to the current date.
+          # This ensures the identifier is always unique.
+          IDENTIFIER_SUFFIX="${{ github.event.inputs.identifier || format('{0:yyyy-MM-dd}', github.run_started_at) }}"
+          IDENTIFIER="gdrive-archive-1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn-${IDENTIFIER_SUFFIX}"
 
-          # Run the upload command.
-          # It uploads all files from the 'gdrive_downloads' directory.
-          # We add metadata to make the item findable and descriptive.
+          # Use user-provided date, or default to the current date.
+          UPLOAD_DATE="${{ github.event.inputs.date || format('{0:yyyy-MM-dd}', github.run_started_at) }}"
+
+          # The 'ia' tool expects subjects to be semicolon-separated. We convert from comma-separated.
+          SUBJECTS=$(echo "${{ github.event.inputs.subjects || 'gdrive,backup,archive' }}" | tr ',' ';')
+
+          # --- Construct Upload Command ---
+          echo "Uploading to Archive.org with identifier: $IDENTIFIER"
+          
           ia upload "$IDENTIFIER" ./gdrive_downloads/* \
-            --metadata="title:Automatic Archive of GDrive Folder (1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn)" \
-            --metadata="collection:opensource_media" \
-            --metadata="subject:gdrive;backup;archive" \
-            --metadata="description:This item is an automatic backup of the public Google Drive folder located at https://drive.google.com/drive/folders/1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn. This backup was created by a GitHub Action." \
+            --metadata="title:${{ github.event.inputs.title || 'Automatic Archive of GDrive Folder' }}" \
+            --metadata="collection:${{ github.event.inputs.collection || 'opensource_media' }}" \
+            --metadata="description:${{ github.event.inputs.description || 'Automatic backup of GDrive folder.' }}" \
+            --metadata="subject:$SUBJECTS" \
+            --metadata="creator:${{ github.event.inputs.creator || 'GitHub Action' }}" \
+            --metadata="date:$UPLOAD_DATE" \
             --verbose
