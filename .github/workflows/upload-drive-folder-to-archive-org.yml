@@ -1,9 +1,9 @@
-# .github/workflows/gdrive_to_archive.yml
+# .github/workflows/upload-drive-folder-to-archive-org.yml
 name: Upload Google Drive Folder to Archive.org
 
 # Controls when the action will run.
 on:
-  # Allows you to run this workflow manually from the Actions tab
+  # Allows you to run this workflow manually from the Actions tab with custom inputs
   workflow_dispatch:
     inputs:
       identifier:
@@ -96,11 +96,12 @@ jobs:
           # --- Construct Upload Command ---
           echo "Uploading to Archive.org with identifier: $IDENTIFIER"
           
+          # This is the corrected command. It relies on the IA_ACCESS_KEY and IA_SECRET_KEY
+          # environment variables set above for authentication.
           ia upload "$IDENTIFIER" ./gdrive_downloads/* \
-            --access-key="${{ secrets.IA_ACCESS_KEY }}" \
-            --secret-key="${{ secrets.IA_SECRET_KEY }}" \
             --metadata="title:${{ github.event.inputs.title || 'Automatic Archive of GDrive Folder' }}" \
             --metadata="collection:${{ github.event.inputs.collection || 'opensource_media' }}" \
             --metadata="description:${{ github.event.inputs.description || 'Automatic backup of GDrive folder.' }}" \
             --metadata="subject:$UPLOAD_SUBJECTS" \
-            --
+            --metadata="creator:${{ github.event.inputs.creator || 'GitHub Action' }}" \
+            --metadata="date:$UPLOAD_DATE"
