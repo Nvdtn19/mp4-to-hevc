@@ -9,9 +9,8 @@ on:
         required: true
         default: 'https://mega.nz/file/vyYAkJRZ#ILSnP8DK5-j7UYImkkdAuVomLLlO2bW8hBKMel-zovA'
       archive_identifier:
-        description: 'Archive.org Item ID (must be unique)'
-        required: true
-        default: 'global-metadata-bak'
+        description: 'Item ID (Optional). If blank, a unique ID will be generated from the title.'
+        required: false
       archive_title:
         description: 'Page Title'
         required: true
@@ -20,15 +19,15 @@ on:
         description: 'Select the Archive.org Collection'
         type: choice
         required: true
-        default: 'communitydata'
+        default: 'Community Data'
         options:
-          - communitydata
-          - community_texts
-          - community_audio
-          - community_movies
-          - community_software
-          - community_images
-          - community
+          - 'Community Data'
+          - 'Community Texts'
+          - 'Community Audio'
+          - 'Community Movies'
+          - 'Community Software'
+          - 'Community Image'
+          - 'Community'
       archive_license:
         description: 'Select the License'
         type: choice
@@ -64,7 +63,6 @@ on:
       archive_date:
         description: 'Publish Date (YYYY-MM-DD)'
         required: false
-        # The action will automatically use the current date if this is left blank
         default: ''
 
 jobs:
@@ -104,66 +102,83 @@ jobs:
       - name: Build Upload Command
         id: build_command
         run: |
-          # Start with the base command, using single quotes for the identifier to be safe.
-          CMD="ia upload '${{ github.event.inputs.archive_identifier }}' ./download_content/*"
+          # 1. DETERMINE ITEM IDENTIFIER
+          IDENTIFIER="${{ github.event.inputs.archive_identifier }}"
+          if [ -z "$IDENTIFIER" ]; then
+            echo "No Item ID provided, generating a new one..."
+            SANITIZED_TITLE=$(echo "${{ github.event.inputs.archive_title }}" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]/-/g' -e 's/--*//g' -e 's/^-//' -e 's/-$//')
+            TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
+            IDENTIFIER="${SANITIZED_TITLE:-item}-${TIMESTAMP}"
+          fi
+          echo "Final Item ID: $IDENTIFIER"
+          echo "final_identifier=$IDENTIFIER" >> $GITHUB_OUTPUT
 
-          # Add standard metadata by appending to the command string.
-          # We escape the double quotes within the command.
+          # 2. MAP DISPLAY-FRIENDLY COLLECTION NAME TO TECHNICAL ID
+          COLLECTION_INPUT="${{ github.event.inputs.archive_collection }}"
+          TARGET_COLLECTION=""
+          case "$COLLECTION_INPUT" in
+            "Community Data" | "Community Texts")
+              TARGET_COLLECTION="opensource_media"
+              ;;
+            "Community Movies")
+              TARGET_COLLECTION="opensource_movies"
+              ;;
+            "Community Audio")
+              TARGET_COLLECTION="opensource_audio"
+              ;;
+            "Community Software")
+              TARGET_COLLECTION="opensource_software"
+              ;;
+            "Community Image")
+              TARGET_COLLECTION="opensource_images"
+              ;;
+            *)
+              # Default case for "Community" or any other value
+              TARGET_COLLECTION="opensource_media"
+              ;;
+          esac
+          echo "Input Collection: '$COLLECTION_INPUT' -> Mapped to: '$TARGET_COLLECTION'"
+
+          # 3. BUILD THE FINAL COMMAND
+          CMD="ia upload '$IDENTIFIER' ./download_content/*"
           CMD="$CMD --metadata=\"title:${{ github.event.inputs.archive_title }}\""
-          CMD="$CMD --metadata=\"collection:${{ github.event.inputs.archive_collection }}\""
+          CMD="$CMD --metadata=\"collection:$TARGET_COLLECTION\""
           CMD="$CMD --metadata=\"description:${{ github.event.inputs.archive_description }}\""
           CMD="$CMD --metadata=\"subject:${{ github.event.inputs.archive_subjects }}\""
           CMD="$CMD --metadata=\"creator:${{ github.event.inputs.archive_creator }}\""
-          
-          # Add date (use current if not provided)
           DATE="${{ github.event.inputs.archive_date || steps.date.outputs.date }}"
           CMD="$CMD --metadata=\"date:$DATE\""
-          
-          # Handle the 'Test Item' flag based on user input
           if [ "${{ github.event.inputs.test_item }}" == "Yes" ]; then
             CMD="$CMD --metadata=\"test-item:yes\""
           fi
-          
-          # Determine the license URL from the user's dropdown choice
           LICENSE_URL=""
           case "${{ github.event.inputs.archive_license }}" in
-            "CC0 - No Rights Reserved")
-              LICENSE_URL="http://creativecommons.org/publicdomain/zero/1.0/" ;;
-            "Creative Commons: Attribution 4.0")
-              LICENSE_URL="http://creativecommons.org/licenses/by/4.0/" ;;
-            "Creative Commons: Attribution-ShareAlike 4.0")
-              LICENSE_URL="http://creativecommons.org/licenses/by-sa/4.0/" ;;
-            "Creative Commons: Attribution-NonCommercial 4.0")
-              LICENSE_URL="http://creativecommons.org/licenses/by-nc/4.0/" ;;
-            "Creative Commons: Attribution-NonCommercial-ShareAlike 4.0")
-              LICENSE_URL="http://creativecommons.org/licenses/by-nc-sa/4.0/" ;;
-            "Public Domain Mark 1.0")
-              LICENSE_URL="http://creativecommons.org/publicdomain/mark/1.0/" ;;
+            "CC0 - No Rights Reserved") LICENSE_URL="http://creativecommons.org/publicdomain/zero/1.0/" ;;
+            "Creative Commons: Attribution 4.0") LICENSE_URL="http://creativecommons.org/licenses/by/4.0/" ;;
+            "Creative Commons: Attribution-ShareAlike 4.0") LICENSE_URL="http://creativecommons.org/licenses/by-sa/4.0/" ;;
+            "Creative Commons: Attribution-NonCommercial 4.0") LICENSE_URL="http://creativecommons.org/licenses/by-nc/4.0/" ;;
+            "Creative Commons: Attribution-NonCommercial-ShareAlike 4.0") LICENSE_URL="http://creativecommons.org/licenses/by-nc-sa/4.0/" ;;
+            "Public Domain Mark 1.0") LICENSE_URL="http://creativecommons.org/publicdomain/mark/1.0/" ;;
           esac
-          
-          # Add the license URL metadata only if a license was selected
           if [ -n "$LICENSE_URL" ]; then
             CMD="$CMD --metadata=\"licenseurl:$LICENSE_URL\""
           fi
           
-          # Write the fully constructed command into a temporary script file
           echo "#!/bin/bash" > ./upload_script.sh
           echo "$CMD" >> ./upload_script.sh
           chmod +x ./upload_script.sh
 
       - name: Upload Content to Archive.org
         env:
-          # Authenticate using the secrets stored in the repository
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
           echo "The following command will be executed:"
           cat ./upload_script.sh
           echo "---"
-          # Execute the script containing the full command
           ./upload_script.sh
 
       - name: ✅ All Done!
         run: |
           echo "Upload complete!"
-          echo "Access your item at: https://archive.org/details/${{ github.event.inputs.archive_identifier }}"
+          echo "Access your item at: https://archive.org/details/${{ steps.build_command.outputs.final_identifier }}"
