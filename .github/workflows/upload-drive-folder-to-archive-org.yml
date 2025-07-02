@@ -1,9 +1,14 @@
-name: Upload Google Drive Folder to Archive.org
+name: Upload Google Drive Link to Archive.org
 
 # This action is triggered manually from the GitHub Actions tab.
 on:
   workflow_dispatch:
     inputs:
+      google_drive_url:
+        description: 'The full URL of the public Google Drive folder OR file'
+        required: true
+        type: string
+        default: 'https://drive.google.com/drive/folders/1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn'
       archive_identifier:
         description: 'Unique ID for the Archive.org item (no spaces)'
         required: true
@@ -62,10 +67,17 @@ jobs:
       - name: Create download directory
         run: mkdir gdrive_files
 
-      # Step 5: Download all files from the public Google Drive folder
-      - name: Download files from Google Drive
+      # Step 5: Download from Google Drive (handles both folder and file links)
+      - name: Download from Google Drive
         run: |
-          gdown --folder 'https://drive.google.com/drive/folders/1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn' -O gdrive_files
+          URL="${{ github.event.inputs.google_drive_url }}"
+          if [[ "$URL" == *"/folders/"* ]]; then
+            echo "Detected FOLDER link. Downloading all files from folder."
+            gdown --folder "$URL" -O gdrive_files
+          else
+            echo "Detected FILE link. Downloading single file."
+            gdown "$URL" -O gdrive_files/
+          fi
 
       # Step 6: Create local Archive.org config file
       # This creates a config file in the workspace and explicitly points the CLI to it.
@@ -83,7 +95,7 @@ jobs:
           tags="${{ github.event.inputs.archive_subjects }}"
           echo "formatted_tags=${tags//,/;}" >> $GITHUB_ENV
 
-      # Step 8: Upload the files to Archive.org
+      # Step 8: Upload the downloaded content to Archive.org
       # We use the --config-file flag to ensure the correct credentials are used.
       - name: Upload files to Archive.org
         run: |
