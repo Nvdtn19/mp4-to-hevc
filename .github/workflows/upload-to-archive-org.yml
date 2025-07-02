@@ -17,7 +17,7 @@ on:
         required: true
       subject_tags:
         description: 'Subject Tags (comma-separated)'
-        required: false
+        required: true
       creator:
         description: 'Creator'
         required: false
@@ -29,8 +29,8 @@ on:
         required: true
         type: choice
         options:
-        - community
         - opensource_media
+        - community
         - opensource_audio
         - opensource_movies
         - opensource_software
