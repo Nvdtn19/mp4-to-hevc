@@ -102,4 +102,4 @@ jobs:
             --metadata="description:${{ github.event.inputs.description || 'Automatic backup of GDrive folder.' }}" \
             --metadata="subject:$UPLOAD_SUBJECTS" \
             --metadata="creator:${{ github.event.inputs.creator || 'GitHub Action' }}" \
-            --metadata="date:$UPLOAD_DATE" \
+            --metadata="date:$UPLOAD_DATE" 
