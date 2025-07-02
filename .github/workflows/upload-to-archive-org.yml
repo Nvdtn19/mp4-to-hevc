@@ -3,19 +3,9 @@ name: Upload to Archive.org
 on:
   workflow_dispatch:
     inputs:
-      upload_method:
-        description: 'Choose Upload Method'
-        required: true
-        type: choice
-        options:
-          - 'Direct URL File(s)'
-          - 'Google Drive Folder'
       file_urls:
-        description: 'File URLs (space-separated, required for Direct URL File(s))'
-        required: false
-      gdrive_folder_id:
-        description: 'Google Drive Folder ID (e.g., 1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn, required for Google Drive Folder)'
-        required: false
+        description: 'File URLs (space-separated)'
+        required: true
       page_title:
         description: 'Page Title'
         required: true
@@ -25,42 +15,46 @@ on:
       description:
         description: 'Description'
         required: true
-      collection_display:
+      subject_tags:
+        description: 'Subject Tags (comma-separated)'
+        required: false
+      creator:
+        description: 'Creator'
+        required: false
+      publish_date:
+        description: 'Date (YYYY-MM-DD)'
+        required: false
+      collection:
         description: 'Collection'
         required: true
         type: choice
         options:
-          - 'Community data'
-          - 'Community texts'
-          - 'Community audio'
-          - 'Community movies'
-          - 'Community software'
-          - 'Community images'
+        - community
+        - opensource_media
+        - opensource_audio
+        - opensource_movies
+        - opensource_software
+        - opensource_image
+        - etree
+        - publicdomain
       test_item:
         description: 'Is this a Test Item?'
         required: true
         type: choice
         options:
-          - 'No'
-          - 'Yes (will be removed after 30 days)'
-      license_display:
+        - 'No'
+        - 'Yes (will be removed after 30 days)'
+      license:
         description: 'License'
         required: true
         type: choice
         options:
-          - 'Leave license blank'
-          - 'CC0 — “No Rights Reserved”'
-          - 'Creative Commons Attribution-NoDerivs (No Remixing)'
-          - 'Creative Commons Attribution (Allow Remixing)'
-          - 'Creative Commons Attribution-ShareAlike (Allow Remixing, require Share-Alike)'
-          - 'Creative Commons Attribution-NonCommercial (Allow Remixing, Prohibit Commercial Use)'
-          - 'Creative Commons Attribution-NonCommercial-ShareAlike (Allow Remixing, require Share-Alike, Prohibit Commercial Use)'
-          - 'Creative Commons Attribution-NonCommercial-NoDerivs (No Remixing, Prohibit Commercial Use)'
-          - 'Public Domain'
-      additional_metadata_json:
-        description: 'Optional metadata (JSON, e.g., {"creator": "John Doe", "date": "2023-01-01", "subject": "tag1,tag2"})'
-        required: false
-        type: string
+        - 'http://creativecommons.org/licenses/by/4.0/' # CC BY
+        - 'http://creativecommons.org/licenses/by-sa/4.0/' # CC BY-SA
+        - 'http://creativecommons.org/licenses/by-nc/4.0/' # CC BY-NC
+        - 'http://creativecommons.org/licenses/by-nc-sa/4.0/' # CC BY-NC-SA
+        - 'http://creativecommons.org/publicdomain/zero/1.0/' # CC0
+        - 'http://creativecommons.org/publicdomain/mark/1.0/' # Public Domain
 
 jobs:
   upload_to_archiveorg:
@@ -74,170 +68,46 @@ jobs:
       with:
         python-version: '3.x'
 
-    - name: Install Common Python dependencies
-      run: |
-        pip install internetarchive
+    - name: Install internetarchive
+      run: pip install internetarchive
 
-    - name: Download files from Direct URLs
-      id: download_direct_urls
-      if: ${{ github.event.inputs.upload_method == 'Direct URL File(s)' }}
+    - name: Configure internetarchive tool
       env:
-        FILE_URLS: ${{ github.event.inputs.file_urls }}
+        IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+        IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
       run: |
-        DOWNLOAD_DIR="temp_downloads"
-        mkdir -p "$DOWNLOAD_DIR"
-        
-        if [[ -z "$FILE_URLS" ]]; then
-          echo "Error: File URLs are required for 'Direct URL File(s)' upload method."
-          exit 1
-        fi
-
-        IFS=' ' read -r -a URLS <<< "$FILE_URLS"
-        declare -a FILES_TO_UPLOAD_ARRAY
-        
-        for url in "${URLS[@]}"; do
-          echo "Downloading: $url"
-          wget -P "$DOWNLOAD_DIR" "$url"
-          FILENAME=$(basename "$url")
-          FILES_TO_UPLOAD_ARRAY+=("$DOWNLOAD_DIR/$FILENAME")
-        done
-        
-        printf "%s\n" "${FILES_TO_UPLOAD_ARRAY[@]}" > files_to_upload.txt
-        echo "files_list=$(cat files_to_upload.txt | xargs echo)" >> "$GITHUB_OUTPUT"
-
-    - name: Download files from Google Drive
-      id: download_gdrive
-      if: ${{ github.event.inputs.upload_method == 'Google Drive Folder' }}
-      env:
-        GCP_SA_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
-        GDRIVE_FOLDER_ID: ${{ github.event.inputs.gdrive_folder_id }}
-        DOWNLOAD_DIR: "temp_downloads"
-      run: |
-        mkdir -p "$DOWNLOAD_DIR"
-
-        if [[ -z "$GDRIVE_FOLDER_ID" ]]; then
-          echo "Error: Google Drive Folder ID is required for 'Google Drive Folder' upload method."
-          exit 1
-        fi
-        if [[ -z "$GCP_SA_KEY" ]]; then
-          echo "Error: GCP_SERVICE_ACCOUNT_KEY secret is missing. Required for Google Drive access."
-          exit 1
-        fi
-        
-        pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
-
-        echo "$GCP_SA_KEY" > "$DOWNLOAD_DIR/service_account_key.json"
-
-        python3 ./script/download_gdrive.py
-
-        echo "files_list=$(cat files_to_upload.txt | xargs echo)" >> "$GITHUB_OUTPUT"
-
-    - name: Prepare All Metadata
-      id: prepare_metadata
-      env:
-        ADDITIONAL_JSON_INPUT: ${{ github.event.inputs.additional_metadata_json }}
-      run: |
-        METADATA_ARGS_ARRAY=()
-        
-        METADATA_ARGS_ARRAY+=("--metadata=title:${{ github.event.inputs.page_title }}")
-        METADATA_ARGS_ARRAY+=("--metadata=description:${{ github.event.inputs.description }}")
-        
-        declare -A COLLECTION_MAP
-        COLLECTION_MAP["Community data"]="opensource_media"
-        COLLECTION_MAP["Community texts"]="opensource_texts"
-        COLLECTION_MAP["Community audio"]="opensource_audio"
-        COLLECTION_MAP["Community movies"]="opensource_movies"
-        COLLECTION_MAP["Community software"]="opensource_software"
-        COLLECTION_MAP["Community images"]="opensource_image"
-        SELECTED_COLLECTION_DISPLAY="${{ github.event.inputs.collection_display }}"
-        COLLECTION_VALUE="${COLLECTION_MAP["$SELECTED_COLLECTION_DISPLAY"]}"
-        METADATA_ARGS_ARRAY+=("--metadata=collection:$COLLECTION_VALUE")
-
-        declare -A LICENSE_MAP
-        LICENSE_MAP["Leave license blank"]=""
-        LICENSE_MAP["CC0 — “No Rights Reserved”"]="http://creativecommons.org/publicdomain/zero/1.0/"
-        LICENSE_MAP["Creative Commons Attribution-NoDerivs (No Remixing)"]="http://creativecommons.org/licenses/by-nd/4.0/"
-        LICENSE_MAP["Creative Commons Attribution (Allow Remixing)"]="http://creativecommons.org/licenses/by/4.0/"
-        LICENSE_MAP["Creative Commons Attribution-ShareAlike (Allow Remixing, require Share-Alike)"]="http://creativecommons.org/licenses/by-sa/4.0/"
-        LICENSE_MAP["Creative Commons Attribution-NonCommercial (Allow Remixing, Prohibit Commercial Use)"]="http://creativecommons.org/licenses/by-nc/4.0/"
-        LICENSE_MAP["Creative Commons Attribution-NonCommercial-ShareAlike (Allow Remixing, require Share-Alike, Prohibit Commercial Use)"]="http://creativecommons.org/licenses/by-nc-sa/4.0/"
-        LICENSE_MAP["Creative Commons Attribution-NonCommercial-NoDerivs (No Remixing, Prohibit Commercial Use)"]="http://creativecommons.org/licenses/by-nc-nd/4.0/"
-        LICENSE_MAP["Public Domain"]="http://creativecommons.org/publicdomain/mark/1.0/"
-
-        SELECTED_LICENSE_DISPLAY="${{ github.event.inputs.license_display }}"
-        LICENSE_URL="${LICENSE_MAP["$SELECTED_LICENSE_DISPLAY"]}"
-        if [[ -n "$LICENSE_URL" ]]; then
-          METADATA_ARGS_ARRAY+=("--metadata=licenseurl:$LICENSE_URL")
-        fi
-
-        if [[ "${{ github.event.inputs.test_item }}" == "Yes (will be removed after 30 days)" ]]; then
-          METADATA_ARGS_ARRAY+=("--metadata=test_item:true")
-        fi
-        
-        python3 ./script/parse_metadata.py > additional_metadata_flags.txt 2>&1
-          
-        ADDITIONAL_METADATA_FLAGS=$(grep 'ADDITIONAL_METADATA_FLAGS=' additional_metadata_flags.txt | sed 's/ADDITIONAL_METADATA_FLAGS=//')
-        
-        IFS=' ' read -r -a PARSED_FLAGS_ARRAY <<< "$ADDITIONAL_METADATA_FLAGS"
-        for flag in "${PARSED_FLAGS_ARRAY[@]}"; do
-          METADATA_ARGS_ARRAY+=("$flag")
-        done
-
-        printf "%s\n" "${METADATA_ARGS_ARRAY[@]}" > combined_metadata_args.txt
-        echo "all_metadata_args=$(cat combined_metadata_args.txt | xargs echo)" >> "$GITHUB_OUTPUT"
-
-
-    - name: Upload files to Archive.org
-      run: |
-        set -x # Enable shell debugging to show every command executed
-
         echo "[s3]" > ~/.ia
-        echo "access = ${{ secrets.IA_ACCESS_KEY }}" >> ~/.ia
-        echo "secret = ${{ secrets.IA_SECRET_KEY }}" >> ~/.ia
+        echo "access = $IA_ACCESS_KEY" >> ~/.ia
+        echo "secret = $IA_SECRET_KEY" >> ~/.ia
 
-        # --- Test Internet Archive Authentication ---
-        echo "--- Testing Internet Archive Authentication (ia account) ---"
-        # Changed 'ia whoami' to 'ia account' as 'whoami' is not a valid command
-        ia account 2>&1 || { echo "::error::Internet Archive authentication failed. Please check IA_ACCESS_KEY and IA_SECRET_KEY secrets."; exit 1; }
-        echo "--- Authentication Test Complete ---"
-        # -----------------------------------------------------------
-
+    - name: Download and Upload files
+      run: |
         IDENTIFIER="${{ github.event.inputs.page_url || '' }}"
         if [ -z "$IDENTIFIER" ]; then
-          IDENTIFIER=$(echo "${{ github.event.inputs.page_title }}" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_.-]//g')
+          IDENTIFIER=$(echo "${{ github.event.inputs.page_title }}" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
         fi
 
-        FILES_TO_UPLOAD_STR=""
-        if [[ "${{ steps.download_direct_urls.outcome }}" == "success" ]]; then
-          FILES_TO_UPLOAD_STR="${{ steps.download_direct_urls.outputs.files_list }}"
-        elif [[ "${{ steps.download_gdrive.outcome }}" == "success" ]]; then
-          FILES_TO_UPLOAD_STR="${{ steps.download_gdrive.outputs.files_list }}"
+        METADATA=(
+          "--metadata=title:${{ github.event.inputs.page_title }}"
+          "--metadata=description:${{ github.event.inputs.description }}"
+          "--metadata=creator:${{ github.event.inputs.creator }}"
+          "--metadata=date:${{ github.event.inputs.publish_date }}"
+          "--metadata=subject:${{ github.event.inputs.subject_tags }}"
+          "--metadata=collection:${{ github.event.inputs.collection }}"
+          "--metadata=licenseurl:${{ github.event.inputs.license }}"
+        )
+        
+        # Add test_item metadata only if 'Yes' is selected
+        if [[ "${{ github.event.inputs.test_item }}" == "Yes (will be removed after 30 days)" ]]; then
+          METADATA+=("--metadata=test_item:true")
         fi
 
-        if [[ -z "$FILES_TO_UPLOAD_STR" ]]; then
-          echo "No files were prepared for upload. Exiting ia upload."
-          exit 0
-        fi
+        URLS=(${{ github.event.inputs.file_urls }})
+        FILES_TO_UPLOAD=()
+        for url in "${URLS[@]}"; do
+          wget "$url"
+          FILENAME=$(basename "$url")
+          FILES_TO_UPLOAD+=("$FILENAME")
+        done
 
-        IFS=' ' read -r -a FILES_TO_UPLOAD <<< "$FILES_TO_UPLOAD_STR"
-
-        if [ ${#FILES_TO_UPLOAD[@]} -eq 0 ]; then
-          echo "Parsed file list is empty. Exiting ia upload."
-          exit 0
-        fi
-
-        # --- Verify file existence before upload ---
-        echo "--- Verifying downloaded files ---"
-        ls -lR temp_downloads/
-        echo "----------------------------------"
-
-        ALL_METADATA_FLAGS_STR="${{ steps.prepare_metadata.outputs.all_metadata_args }}"
-        IFS=$'\n' read -r -d '' -a ALL_METADATA_FLAGS_ARRAY < <(printf "%s" "$ALL_METADATA_FLAGS_STR" | xargs -n 1 printf "%s\n")
-
-        echo "--- Debugging ia upload (Final Attempt) ---"
-        echo "Identifier: $IDENTIFIER"
-        echo "Files to upload: ${FILES_TO_UPLOAD[@]}"
-        echo "Metadata flags: ${ALL_METADATA_FLAGS_ARRAY[@]}"
-        echo "------------------------------------------"
-
-        ia upload "$IDENTIFIER" "${FILES_TO_UPLOAD[@]}" "${ALL_METADATA_FLAGS_ARRAY[@]}" 2>&1
+        ia upload "$IDENTIFIER" "${FILES_TO_UPLOAD[@]}" "${METADATA[@]}"
