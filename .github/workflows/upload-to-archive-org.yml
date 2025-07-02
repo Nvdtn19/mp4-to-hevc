@@ -137,8 +137,9 @@ jobs:
         # Write the service account key to a file within the DOWNLOAD_DIR
         echo "$GCP_SA_KEY" > "$DOWNLOAD_DIR/service_account_key.json"
 
-        # Execute the separate Python script
-        python3 ./.github/workflows/download_gdrive.py # Adjust path if you put it elsewhere
+        # *** THE ONLY LINE THAT NEEDS TO CHANGE ***
+        # Execute the separate Python script from the 'script/' folder
+        python3 ./script/download_gdrive.py # <--- Changed path here
 
         # Output the list of files to be consumed by the next step
         echo "files_list=$(cat files_to_upload.txt | xargs echo)" >> "$GITHUB_OUTPUT"
