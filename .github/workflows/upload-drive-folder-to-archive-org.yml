@@ -67,13 +67,13 @@ jobs:
         run: |
           gdown --folder 'https://drive.google.com/drive/folders/1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn' -O gdrive_files
 
-      # Step 6: Create Archive.org config file for authentication
-      # This is the primary, recommended method for authentication.
-      - name: Create Archive.org config file
+      # Step 6: Create local Archive.org config file
+      # This creates a config file in the workspace and explicitly points the CLI to it.
+      - name: Create local Archive.org config file
         run: |
-          echo "[s3]" > ~/.ia.cfg
-          echo "access = ${{ secrets.IA_ACCESS_KEY }}" >> ~/.ia.cfg
-          echo "secret = ${{ secrets.IA_SECRET_KEY }}" >> ~/.ia.cfg
+          echo "[s3]" > ia.cfg
+          echo "access = ${{ secrets.IA_ACCESS_KEY }}" >> ia.cfg
+          echo "secret = ${{ secrets.IA_SECRET_KEY }}" >> ia.cfg
 
       # Step 7: Prepare subject tags for the upload command
       # The 'ia' tool expects semicolons for multiple tags, so we replace the user's commas.
@@ -83,15 +83,11 @@ jobs:
           tags="${{ github.event.inputs.archive_subjects }}"
           echo "formatted_tags=${tags//,/;}" >> $GITHUB_ENV
 
-      # Step 8: Upload the files to Archive.org with all the provided metadata
-      # We provide credentials via both the config file (Step 6) and environment
-      # variables here as a fallback to ensure authentication succeeds.
+      # Step 8: Upload the files to Archive.org
+      # We use the --config-file flag to ensure the correct credentials are used.
       - name: Upload files to Archive.org
-        env:
-          INTERNETARCHIVE_S3_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          INTERNETARCHIVE_S3_SECRET: ${{ secrets.IA_SECRET_KEY }}
         run: |
-          ia upload ${{ github.event.inputs.archive_identifier }} gdrive_files/ \
+          ia --config-file ./ia.cfg upload ${{ github.event.inputs.archive_identifier }} gdrive_files/ \
           --metadata="title:${{ github.event.inputs.archive_title }}" \
           --metadata="collection:${{ github.event.inputs.archive_collection }}" \
           --metadata="description:${{ github.event.inputs.archive_description }}" \
