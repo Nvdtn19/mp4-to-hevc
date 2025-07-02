@@ -1,0 +1,95 @@
+name: Mega to Archive.org Uploader
+
+on:
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+    inputs:
+      mega_link:
+        description: 'Public MEGA Folder or File Link'
+        required: true
+        default: 'https://mega.nz/file/vyYAkJRZ#ILSnP8DK5-j7UYImkkdAuVomLLlO2bW8hBKMel-zovA'
+      archive_identifier:
+        description: 'Archive.org Item ID (must be unique)'
+        required: true
+        default: 'global-metadata-bak'
+      archive_title:
+        description: 'Page Title'
+        required: true
+        default: 'global-metadata-bak'
+      archive_description:
+        description: 'Item Description'
+        required: false
+        default: 'Backup of content from a public MEGA link.'
+      archive_subjects:
+        description: 'Subject Tags (comma-separated)'
+        required: false
+        default: 'backup, data, archive'
+      archive_creator:
+        description: 'Content Creator'
+        required: false
+      archive_date:
+        description: 'Publish Date (YYYY-MM-DD)'
+        required: false
+        # The action will automatically use the current date if this is left blank
+        default: ''
+
+jobs:
+  download-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install MEGAcmd
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget
+          # Download and install the MEGAcmd .deb package for Ubuntu 22.04
+          wget https://mega.nz/linux/repo/xUbuntu_22.04/amd64/megacmd_1.6.3-1.1_amd64.deb -O megacmd.deb
+          sudo dpkg -i megacmd.deb
+          # Handle any missing dependencies
+          sudo apt-get -f install -y
+
+      - name: Download Content from MEGA
+        run: |
+          echo "Starting download from MEGA..."
+          mkdir ./download_content
+          # The 'megacmd get' command works universally for both file and folder links.
+          megacmd get "${{ github.event.inputs.mega_link }}" ./download_content
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install Internet Archive Client
+        run: pip install internetarchive
+
+      - name: Set Current Date if Not Provided
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+      - name: Upload Content to Archive.org
+        env:
+          # Authenticate using the secrets stored in the repository
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          echo "Uploading content to Archive.org..."
+          # The './download_content/*' glob pattern correctly finds the downloaded
+          # content, whether it's a single file or a folder containing many files.
+          ia upload ${{ github.event.inputs.archive_identifier }} \
+            ./download_content/* \
+            --metadata="title:${{ github.event.inputs.archive_title }}" \
+            --metadata="description:${{ github.event.inputs.archive_description }}" \
+            --metadata="subject:${{ github.event.inputs.archive_subjects }}" \
+            --metadata="creator:${{ github.event.inputs.archive_creator }}" \
+            --metadata="collection:communitydata" \
+            --metadata="date:${{ github.event.inputs.archive_date || steps.date.outputs.date }}" \
+            --metadata="licenseurl:http://creativecommons.org/publicdomain/zero/1.0/"
+
+      - name: ✅ All Done!
+        run: |
+          echo "Upload complete!"
+          echo "Access your item at: https://archive.org/details/${{ github.event.inputs.archive_identifier }}"
