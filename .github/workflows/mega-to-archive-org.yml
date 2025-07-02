@@ -1,3 +1,14 @@
+# This GitHub Action downloads files/folders from a public MEGA link
+# and uploads them to Archive.org with detailed metadata.
+
+# To use this:
+# 1. Place this file in your GitHub repository at: .github/workflows/upload_to_archive.yml
+# 2. Add your Archive.org keys as secrets in your repository's settings:
+#    - IA_ACCESS_KEY: Your S3-style Access Key.
+#    - IA_SECRET_KEY: Your S3-style Secret Key.
+# 3. Go to the "Actions" tab in your repository, select this workflow,
+#    and click "Run workflow" to start.
+
 name: Mega to Archive.org Uploader
 
 on:
@@ -7,32 +18,28 @@ on:
       mega_link:
         description: 'Public MEGA Folder or File Link'
         required: true
-        default: 'https://mega.nz/file/vyYAkJRZ#ILSnP8DK5-j7UYImkkdAuVomLLlO2bW8hBKMel-zovA'
       archive_identifier:
         description: 'Item ID (Optional). If blank, a unique ID will be generated from the title.'
         required: false
       archive_title:
         description: 'Page Title'
         required: true
-        default: 'global-metadata-bak'
       archive_collection:
         description: 'Select the Archive.org Collection'
         type: choice
         required: true
-        default: 'Community Data'
         options:
-          - 'Community Data'
-          - 'Community Texts'
-          - 'Community Audio'
-          - 'Community Movies'
-          - 'Community Software'
-          - 'Community Image'
+          - 'Data'
+          - 'Texts'
+          - 'Audio'
+          - 'Movies'
+          - 'Software'
+          - 'Image'
           - 'Community'
       archive_license:
         description: 'Select the License'
         type: choice
         required: true
-        default: 'CC0 - No Rights Reserved'
         options:
           - 'CC0 - No Rights Reserved'
           - 'Creative Commons: Attribution 4.0'
@@ -45,25 +52,21 @@ on:
         description: 'Is this a test item?'
         type: choice
         required: true
-        default: 'No'
         options:
           - 'No'
           - 'Yes'
       archive_description:
         description: 'Item Description'
         required: false
-        default: 'Backup of content from a public MEGA link.'
       archive_subjects:
         description: 'Subject Tags (comma-separated)'
         required: false
-        default: 'backup, data, archive'
       archive_creator:
         description: 'Content Creator'
         required: false
       archive_date:
         description: 'Publish Date (YYYY-MM-DD)'
         required: false
-        default: ''
 
 jobs:
   download-and-upload:
@@ -77,14 +80,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y wget
-          wget https://mega.nz/linux/repo/xUbuntu_22.04/amd64/megacmd_1.6.3-1.1_amd64.deb -O megacmd.deb
+          # The runner is Ubuntu 24.04 (Noble), so we need the corresponding package.
+          wget https://mega.nz/linux/repo/xUbuntu_24.04/amd64/megacmd_1.7.0-1.1_amd64.deb -O megacmd.deb
           sudo dpkg -i megacmd.deb
+          # Install any missing dependencies that MEGAcmd might have
           sudo apt-get -f install -y
 
       - name: Download Content from MEGA
         run: |
           echo "Starting download from MEGA..."
           mkdir ./download_content
+          # This command works for both file and folder links
           megacmd get "${{ github.event.inputs.mega_link }}" ./download_content
 
       - name: Set up Python
@@ -102,34 +108,37 @@ jobs:
       - name: Build Upload Command
         id: build_command
         run: |
-          # 1. DETERMINE ITEM IDENTIFIER
+          # Step 1: Determine the final item identifier.
+          # If the user leaves the input blank, generate a unique ID.
           IDENTIFIER="${{ github.event.inputs.archive_identifier }}"
           if [ -z "$IDENTIFIER" ]; then
             echo "No Item ID provided, generating a new one..."
+            # Sanitize the title to make it URL-friendly
             SANITIZED_TITLE=$(echo "${{ github.event.inputs.archive_title }}" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]/-/g' -e 's/--*//g' -e 's/^-//' -e 's/-$//')
             TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
             IDENTIFIER="${SANITIZED_TITLE:-item}-${TIMESTAMP}"
           fi
           echo "Final Item ID: $IDENTIFIER"
+          # Output the final ID for use in later steps
           echo "final_identifier=$IDENTIFIER" >> $GITHUB_OUTPUT
 
-          # 2. MAP DISPLAY-FRIENDLY COLLECTION NAME TO TECHNICAL ID
+          # Step 2: Map the user-friendly collection name to the correct technical ID.
           COLLECTION_INPUT="${{ github.event.inputs.archive_collection }}"
           TARGET_COLLECTION=""
           case "$COLLECTION_INPUT" in
-            "Community Data" | "Community Texts")
+            "Data" | "Texts")
               TARGET_COLLECTION="opensource_media"
               ;;
-            "Community Movies")
+            "Movies")
               TARGET_COLLECTION="opensource_movies"
               ;;
-            "Community Audio")
+            "Audio")
               TARGET_COLLECTION="opensource_audio"
               ;;
-            "Community Software")
+            "Software")
               TARGET_COLLECTION="opensource_software"
               ;;
-            "Community Image")
+            "Image")
               TARGET_COLLECTION="opensource_images"
               ;;
             *)
@@ -139,18 +148,25 @@ jobs:
           esac
           echo "Input Collection: '$COLLECTION_INPUT' -> Mapped to: '$TARGET_COLLECTION'"
 
-          # 3. BUILD THE FINAL COMMAND
+          # Step 3: Build the full `ia upload` command with all metadata.
+          # Using a script file avoids complex quoting issues in the 'run' block.
           CMD="ia upload '$IDENTIFIER' ./download_content/*"
           CMD="$CMD --metadata=\"title:${{ github.event.inputs.archive_title }}\""
           CMD="$CMD --metadata=\"collection:$TARGET_COLLECTION\""
           CMD="$CMD --metadata=\"description:${{ github.event.inputs.archive_description }}\""
           CMD="$CMD --metadata=\"subject:${{ github.event.inputs.archive_subjects }}\""
           CMD="$CMD --metadata=\"creator:${{ github.event.inputs.archive_creator }}\""
+          
+          # Use the provided date, or fall back to the current date.
           DATE="${{ github.event.inputs.archive_date || steps.date.outputs.date }}"
           CMD="$CMD --metadata=\"date:$DATE\""
+          
+          # Add the 'test-item' flag if the user selected "Yes".
           if [ "${{ github.event.inputs.test_item }}" == "Yes" ]; then
             CMD="$CMD --metadata=\"test-item:yes\""
           fi
+          
+          # Map the user-friendly license name to its corresponding URL.
           LICENSE_URL=""
           case "${{ github.event.inputs.archive_license }}" in
             "CC0 - No Rights Reserved") LICENSE_URL="http://creativecommons.org/publicdomain/zero/1.0/" ;;
@@ -160,16 +176,20 @@ jobs:
             "Creative Commons: Attribution-NonCommercial-ShareAlike 4.0") LICENSE_URL="http://creativecommons.org/licenses/by-nc-sa/4.0/" ;;
             "Public Domain Mark 1.0") LICENSE_URL="http://creativecommons.org/publicdomain/mark/1.0/" ;;
           esac
+          
+          # Only add the license metadata if a license was actually selected.
           if [ -n "$LICENSE_URL" ]; then
             CMD="$CMD --metadata=\"licenseurl:$LICENSE_URL\""
           fi
           
+          # Write the complete command to a shell script for execution.
           echo "#!/bin/bash" > ./upload_script.sh
           echo "$CMD" >> ./upload_script.sh
           chmod +x ./upload_script.sh
 
       - name: Upload Content to Archive.org
         env:
+          # Authenticate using the secrets stored in the repository settings.
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
@@ -181,4 +201,5 @@ jobs:
       - name: ✅ All Done!
         run: |
           echo "Upload complete!"
+          # Use the output from the build step to get the correct final ID for the link.
           echo "Access your item at: https://archive.org/details/${{ steps.build_command.outputs.final_identifier }}"
