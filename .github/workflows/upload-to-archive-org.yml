@@ -33,7 +33,7 @@ on:
       date_created:
         description: 'Date work was created/published (YYYY-MM-DD)'
         required: false
-        default: ''
+        default: '' # Defaults to current date if not provided in the ia upload command
         type: string
       collection:
         description: 'Archive.org collection (e.g., opensource_web_archive)'
@@ -61,6 +61,7 @@ jobs:
       - name: Install Internet Archive CLI
         run: pip install internetarchive
 
+      # --- START of changed section for secrets ---
       - name: Set up Archive.org credentials
         env:
           IA_S3_KEY: ${{ secrets.IA_ACCESS_KEY }}
@@ -71,6 +72,7 @@ jobs:
             exit 1
           fi
           echo "Archive.org credentials are set."
+      # --- END of changed section for secrets ---
 
       - name: Download all files
         id: download_files
@@ -98,39 +100,24 @@ jobs:
         
       - name: Upload to Archive.org
         env:
-          IA_S3_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_S3_SECRET: ${{ secrets.IA_SECRET_KEY }}
+          IA_S3_KEY: ${{ secrets.IA_ACCESS_KEY }} # Changed this line too
+          IA_S3_SECRET: ${{ secrets.IA_SECRET_KEY }} # Changed this line too
         run: |
           DOWNLOADED_FILE_LIST="${{ steps.download_files.outputs.downloaded_file_names }}"
           
-          # Construct the metadata arguments dynamically
-          METADATA_ARGS=""
-          METADATA_ARGS+=" --title \"${{ github.event.inputs.page_title }}\""
-          METADATA_ARGS+=" --description \"${{ github.event.inputs.description }}\""
-          if [ -n "${{ github.event.inputs.subject_tags }}" ]; then
-            METADATA_ARGS+=" --subject \"${{ github.event.inputs.subject_tags }}\""
-          fi
-          if [ -n "${{ github.event.inputs.creator }}" ]; then
-            METADATA_ARGS+=" --creator \"${{ github.event.inputs.creator }}\""
-          fi
-          if [ -n "${{ github.event.inputs.date_created }}" ]; then
-            METADATA_ARGS+=" --date \"${{ github.event.inputs.date_created }}\""
-          fi
-          if [ -n "${{ github.event.inputs.language }}" ]; then
-            METADATA_ARGS+=" --language \"${{ github.event.inputs.language }}\""
-          fi
-          if [ -n "${{ github.event.inputs.license }}" ]; then
-            METADATA_ARGS+=" --license \"${{ github.event.inputs.license }}\""
-          fi
-
           echo "Uploading files for Archive.org identifier: ${{ github.event.inputs.archive_identifier }}"
           echo "Collection: ${{ github.event.inputs.collection }}"
-          echo "Metadata args: $METADATA_ARGS"
           echo "Files to upload: $DOWNLOADED_FILE_LIST"
 
-          # ia upload takes multiple files as arguments
+          # Use a direct, single command for ia upload, passing arguments individually
           ia upload "${{ github.event.inputs.archive_identifier }}" $DOWNLOADED_FILE_LIST \
             --collection "${{ github.event.inputs.collection }}" \
-            $METADATA_ARGS \
+            --title "${{ github.event.inputs.page_title }}" \
+            --description "${{ github.event.inputs.description }}" \
+            --subject "${{ github.event.inputs.subject_tags }}" \
+            --creator "${{ github.event.inputs.creator }}" \
+            --date "${{ github.event.inputs.date_created }}" \
+            --language "${{ github.event.inputs.language }}" \
+            --license "${{ github.event.inputs.license }}" \
             --checksum # Checksum for all files
           echo "Upload complete."
