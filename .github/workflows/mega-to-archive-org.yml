@@ -88,12 +88,16 @@ jobs:
           sudo apt-get install -y megacmd
           echo "Installation complete."
 
-          # --- Find the executable's true path ---
+          # --- Find the executable's true path using dpkg (most reliable) ---
           # This makes the script robust against changes in install location.
-          MEGACMD_PATH=$(which megacmd)
+          MEGACMD_PATH=$(dpkg -L megacmd | grep -E '/megacmd$')
           if [ -z "$MEGACMD_PATH" ]; then
-            echo "::error::megacmd executable not found in PATH after installation."
-            exit 1
+            echo "::error::Could not find megacmd executable path via dpkg. Trying 'which' as a fallback."
+            MEGACMD_PATH=$(which megacmd)
+             if [ -z "$MEGACMD_PATH" ]; then
+                echo "::error::megacmd executable not found via dpkg or which."
+                exit 1
+            fi
           fi
           echo "Found megacmd at: $MEGACMD_PATH"
 
