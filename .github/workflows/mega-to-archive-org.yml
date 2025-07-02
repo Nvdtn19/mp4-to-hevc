@@ -91,7 +91,8 @@ jobs:
           # --- Download ---
           echo "Starting download from MEGA..."
           mkdir ./download_content
-          megacmd get "${{ github.event.inputs.mega_link }}" ./download_content
+          # CORRECTED: Use the full path to the executable to avoid PATH issues.
+          /usr/bin/megacmd get "${{ github.event.inputs.mega_link }}" ./download_content
           echo "Download complete."
 
       - name: Set up Python
