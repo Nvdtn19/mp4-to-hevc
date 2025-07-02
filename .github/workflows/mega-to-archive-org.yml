@@ -76,36 +76,20 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install and Download from MEGA
+      - name: Install and Download from MEGA (Alternative Method)
         run: |
-          # --- Installation ---
-          echo "Installing MEGAcmd..."
+          # --- Installation using megatools (more stable) ---
+          echo "Installing megatools..."
           sudo apt-get update
-          sudo apt-get install -y curl gpg lsb-release
-          curl -fsSL https://mega.nz/keys/MEGA_signing.key | sudo gpg --dearmor -o /usr/share/keyrings/mega-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/mega-archive-keyring.gpg] https://mega.nz/linux/repo/xUbuntu_$(lsb_release -rs)/ ./" | sudo tee /etc/apt/sources.list.d/mega.list
-          sudo apt-get update
-          sudo apt-get install -y megacmd
+          sudo apt-get install -y megatools
           echo "Installation complete."
-
-          # --- Find the executable's true path using dpkg (most reliable) ---
-          # This makes the script robust against changes in install location.
-          MEGACMD_PATH=$(dpkg -L megacmd | grep -E '/megacmd$')
-          if [ -z "$MEGACMD_PATH" ]; then
-            echo "::error::Could not find megacmd executable path via dpkg. Trying 'which' as a fallback."
-            MEGACMD_PATH=$(which megacmd)
-             if [ -z "$MEGACMD_PATH" ]; then
-                echo "::error::megacmd executable not found via dpkg or which."
-                exit 1
-            fi
-          fi
-          echo "Found megacmd at: $MEGACMD_PATH"
 
           # --- Download ---
           echo "Starting download from MEGA..."
+          # Create the target directory for the download
           mkdir ./download_content
-          # Use the dynamically discovered path to the executable.
-          "$MEGACMD_PATH" get "${{ github.event.inputs.mega_link }}" ./download_content
+          # Use megadl, which handles both file and folder links, and specify the output path
+          megadl --path ./download_content "${{ github.event.inputs.mega_link }}"
           echo "Download complete."
 
       - name: Set up Python
