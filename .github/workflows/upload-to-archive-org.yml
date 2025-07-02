@@ -189,16 +189,16 @@ jobs:
 
     - name: Upload files to Archive.org
       run: |
-        # Enable shell debugging to show every command executed
-        set -x
+        set -x # Enable shell debugging to show every command executed
 
         echo "[s3]" > ~/.ia
         echo "access = ${{ secrets.IA_ACCESS_KEY }}" >> ~/.ia
         echo "secret = ${{ secrets.IA_SECRET_KEY }}" >> ~/.ia
 
         # --- Test Internet Archive Authentication ---
-        echo "--- Testing Internet Archive Authentication (ia whoami) ---"
-        ia whoami 2>&1 || { echo "::error::Internet Archive authentication failed. Please check IA_ACCESS_KEY and IA_SECRET_KEY secrets."; exit 1; }
+        echo "--- Testing Internet Archive Authentication (ia account) ---"
+        # Changed 'ia whoami' to 'ia account' as 'whoami' is not a valid command
+        ia account 2>&1 || { echo "::error::Internet Archive authentication failed. Please check IA_ACCESS_KEY and IA_SECRET_KEY secrets."; exit 1; }
         echo "--- Authentication Test Complete ---"
         # -----------------------------------------------------------
 
