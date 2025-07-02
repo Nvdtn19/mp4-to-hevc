@@ -76,15 +76,21 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install MEGAcmd
+      - name: Install MEGAcmd (Robust Method)
         run: |
+          # Use the official repository method to be resilient to OS updates
           sudo apt-get update
-          sudo apt-get install -y wget
-          # The runner is Ubuntu 24.04 (Noble), so we need the corresponding package.
-          wget https://mega.nz/linux/repo/xUbuntu_24.04/amd64/megacmd_1.7.0-1.1_amd64.deb -O megacmd.deb
-          sudo dpkg -i megacmd.deb
-          # Install any missing dependencies that MEGAcmd might have
-          sudo apt-get -f install -y
+          sudo apt-get install -y curl gpg lsb-release
+          
+          # Import MEGA's GPG key
+          curl -fsSL https://mega.nz/keys/MEGA_signing.key | sudo gpg --dearmor -o /usr/share/keyrings/mega-archive-keyring.gpg
+          
+          # Add the MEGA repository, dynamically detecting the Ubuntu version
+          echo "deb [signed-by=/usr/share/keyrings/mega-archive-keyring.gpg] https://mega.nz/linux/repo/xUbuntu_$(lsb_release -rs)/ ./" | sudo tee /etc/apt/sources.list.d/mega.list
+          
+          # Update package lists and install megacmd
+          sudo apt-get update
+          sudo apt-get install -y megacmd
 
       - name: Download Content from MEGA
         run: |
