@@ -77,16 +77,21 @@ jobs:
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
           # --- Set Metadata ---
-          # Use user-provided identifier suffix, or default to the current date.
-          # This ensures the identifier is always unique.
-          IDENTIFIER_SUFFIX="${{ github.event.inputs.identifier || format('{0:yyyy-MM-dd}', github.run_started_at) }}"
+          # Get the current date in YYYY-MM-DD format to use as a reliable default.
+          CURRENT_DATE=$(date +%Y-%m-%d)
+
+          # Use shell parameter expansion (${VAR:-DEFAULT}) to handle defaults.
+          # This correctly separates GitHub's expression syntax from shell logic.
+          IDENTIFIER_INPUT="${{ github.event.inputs.identifier }}"
+          IDENTIFIER_SUFFIX="${IDENTIFIER_INPUT:-$CURRENT_DATE}"
           IDENTIFIER="gdrive-archive-1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn-${IDENTIFIER_SUFFIX}"
 
-          # Use user-provided date, or default to the current date.
-          UPLOAD_DATE="${{ github.event.inputs.date || format('{0:yyyy-MM-dd}', github.run_started_at) }}"
+          DATE_INPUT="${{ github.event.inputs.date }}"
+          UPLOAD_DATE="${DATE_INPUT:-$CURRENT_DATE}"
 
+          SUBJECTS_INPUT="${{ github.event.inputs.subjects }}"
           # The 'ia' tool expects subjects to be semicolon-separated. We convert from comma-separated.
-          SUBJECTS=$(echo "${{ github.event.inputs.subjects || 'gdrive,backup,archive' }}" | tr ',' ';')
+          UPLOAD_SUBJECTS=$(echo "${SUBJECTS_INPUT:-gdrive,backup,archive}" | tr ',' ';')
 
           # --- Construct Upload Command ---
           echo "Uploading to Archive.org with identifier: $IDENTIFIER"
@@ -95,7 +100,7 @@ jobs:
             --metadata="title:${{ github.event.inputs.title || 'Automatic Archive of GDrive Folder' }}" \
             --metadata="collection:${{ github.event.inputs.collection || 'opensource_media' }}" \
             --metadata="description:${{ github.event.inputs.description || 'Automatic backup of GDrive folder.' }}" \
-            --metadata="subject:$SUBJECTS" \
+            --metadata="subject:$UPLOAD_SUBJECTS" \
             --metadata="creator:${{ github.event.inputs.creator || 'GitHub Action' }}" \
             --metadata="date:$UPLOAD_DATE" \
             --verbose
