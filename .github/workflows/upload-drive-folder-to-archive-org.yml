@@ -10,18 +10,25 @@ on:
         type: string
         default: 'https://drive.google.com/drive/folders/1wImUx1UkFVRDB-plqwoGo15blPgXD-Cn'
       archive_identifier:
-        description: 'Unique ID for the Archive.org item (no spaces)'
-        required: true
+        description: 'Unique ID for the Archive.org item (leave blank to auto-generate)'
+        required: false
         type: string
       archive_title:
         description: 'Page Title for the Archive.org item'
         required: true
         type: string
-      archive_collection:
-        description: 'The collection mediatype (e.g., community, data, software)'
+      archive_mediatype:
+        description: 'Select the media type for the item'
         required: true
-        type: string
-        default: 'community'
+        type: choice
+        options:
+        - texts
+        - audio
+        - movies
+        - software
+        - image
+        - data
+        default: 'texts'
       archive_description:
         description: 'A description of the item page'
         required: false
@@ -42,6 +49,27 @@ on:
         description: 'Language of the work (3-letter code, e.g., eng)'
         required: false
         type: string
+      archive_test_item:
+        description: 'Is this a test item?'
+        required: true
+        type: choice
+        options:
+        - 'No'
+        - 'Yes (will be removed after 30 days)'
+        default: 'No'
+      archive_license:
+        description: 'Select a license for the item'
+        required: true
+        type: choice
+        options:
+        - 'Leave license blank'
+        - 'CC0 - "No Rights Reserved"'
+        - 'Public Domain Mark 1.0'
+        - 'Creative Commons Attribution 4.0'
+        - 'Creative Commons Attribution-ShareAlike 4.0'
+        - 'Creative Commons Attribution-NonCommercial 4.0'
+        - 'Creative Commons Attribution-NonCommercial-ShareAlike 4.0'
+        default: 'Leave license blank'
 
 jobs:
   upload-to-archive:
@@ -80,7 +108,6 @@ jobs:
           fi
 
       # Step 6: Create local Archive.org config file
-      # This creates a config file in the workspace and explicitly points the CLI to it.
       - name: Create local Archive.org config file
         run: |
           echo "[s3]" > ia.cfg
@@ -88,22 +115,84 @@ jobs:
           echo "secret = ${{ secrets.IA_SECRET_KEY }}" >> ia.cfg
 
       # Step 7: Prepare subject tags for the upload command
-      # The 'ia' tool expects semicolons for multiple tags, so we replace the user's commas.
       - name: Prepare Subject Tags
         id: prep_tags
         run: |
           tags="${{ github.event.inputs.archive_subjects }}"
           echo "formatted_tags=${tags//,/;}" >> $GITHUB_ENV
 
-      # Step 8: Upload the downloaded content to Archive.org
-      # We use the --config-file flag to ensure the correct credentials are used.
+      # Step 8: Set Archive.org Identifier (use default if blank)
+      - name: Set Archive.org Identifier
+        run: |
+          if [[ -z "${{ github.event.inputs.archive_identifier }}" ]]; then
+            echo "Identifier is blank, creating a default ID."
+            echo "ARCHIVE_ID_FINAL=gdrive-upload-${{ github.run_id }}-${{ github.run_attempt }}" >> $GITHUB_ENV
+          else
+            echo "Using user-provided identifier."
+            echo "ARCHIVE_ID_FINAL=${{ github.event.inputs.archive_identifier }}" >> $GITHUB_ENV
+          fi
+
+      # Step 9: Build and execute the upload command
       - name: Upload files to Archive.org
         run: |
-          ia --config-file ./ia.cfg upload ${{ github.event.inputs.archive_identifier }} gdrive_files/ \
-          --metadata="title:${{ github.event.inputs.archive_title }}" \
-          --metadata="collection:${{ github.event.inputs.archive_collection }}" \
-          --metadata="description:${{ github.event.inputs.archive_description }}" \
-          --metadata="subject:${{ env.formatted_tags }}" \
-          --metadata="creator:${{ github.event.inputs.archive_creator }}" \
-          --metadata="date:${{ github.event.inputs.archive_date }}" \
-          --metadata="language:${{ github.event.inputs.archive_language }}"
+          # Determine the correct collection based on the mediatype
+          MEDIATYPE="${{ github.event.inputs.archive_mediatype }}"
+          if [[ "$MEDIATYPE" == "data" ]]; then
+            ARCHIVE_COLLECTION="opensource_media"
+          elif [[ "$MEDIATYPE" == "texts" ]]; then
+            ARCHIVE_COLLECTION="opensource"
+          else
+            ARCHIVE_COLLECTION="opensource_$MEDIATYPE"
+          fi
+
+          # Start with the base command and required metadata
+          CMD="ia --config-file ./ia.cfg upload ${{ env.ARCHIVE_ID_FINAL }} gdrive_files/ \
+            --metadata=\"title:${{ github.event.inputs.archive_title }}\" \
+            --metadata=\"collection:$ARCHIVE_COLLECTION\" \
+            --metadata=\"mediatype:$MEDIATYPE\""
+
+          # Add optional text metadata if it exists
+          if [[ -n "${{ github.event.inputs.archive_description }}" ]]; then
+            CMD="$CMD --metadata=\"description:${{ github.event.inputs.archive_description }}\""
+          fi
+          if [[ -n "${{ env.formatted_tags }}" ]]; then
+            CMD="$CMD --metadata=\"subject:${{ env.formatted_tags }}\""
+          fi
+          if [[ -n "${{ github.event.inputs.archive_creator }}" ]]; then
+            CMD="$CMD --metadata=\"creator:${{ github.event.inputs.archive_creator }}\""
+          fi
+          if [[ -n "${{ github.event.inputs.archive_date }}" ]]; then
+            CMD="$CMD --metadata=\"date:${{ github.event.inputs.archive_date }}\""
+          fi
+          if [[ -n "${{ github.event.inputs.archive_language }}" ]]; then
+            CMD="$CMD --metadata=\"language:${{ github.event.inputs.archive_language }}\""
+          fi
+
+          # Handle Test Item selection
+          if [[ "${{ github.event.inputs.archive_test_item }}" == "Yes (will be removed after 30 days)" ]]; then
+            CMD="$CMD --metadata=\"test-item:yes\""
+          fi
+
+          # Handle License selection
+          LICENSE_URL=""
+          if [[ "${{ github.event.inputs.archive_license }}" == "CC0 - \"No Rights Reserved\"" ]]; then
+            LICENSE_URL="https://creativecommons.org/publicdomain/zero/1.0/"
+          elif [[ "${{ github.event.inputs.archive_license }}" == "Public Domain Mark 1.0" ]]; then
+            LICENSE_URL="https://creativecommons.org/publicdomain/mark/1.0/"
+          elif [[ "${{ github.event.inputs.archive_license }}" == "Creative Commons Attribution 4.0" ]]; then
+            LICENSE_URL="https://creativecommons.org/licenses/by/4.0/"
+          elif [[ "${{ github.event.inputs.archive_license }}" == "Creative Commons Attribution-ShareAlike 4.0" ]]; then
+            LICENSE_URL="https://creativecommons.org/licenses/by-sa/4.0/"
+          elif [[ "${{ github.event.inputs.archive_license }}" == "Creative Commons Attribution-NonCommercial 4.0" ]]; then
+            LICENSE_URL="https://creativecommons.org/licenses/by-nc/4.0/"
+          elif [[ "${{ github.event.inputs.archive_license }}" == "Creative Commons Attribution-NonCommercial-ShareAlike 4.0" ]]; then
+            LICENSE_URL="https://creativecommons.org/licenses/by-nc-sa/4.0/"
+          fi
+          
+          if [[ -n "$LICENSE_URL" ]]; then
+            CMD="$CMD --metadata=\"licenseurl:$LICENSE_URL\""
+          fi
+
+          # Execute the final command
+          echo "Executing command..."
+          eval $CMD
