@@ -1,0 +1,194 @@
+name: Recursive Google Drive to Archive.org Uploader
+
+# This action is triggered manually from the GitHub Actions tab.
+on:
+  workflow_dispatch:
+    inputs:
+      google_drive_folder_id:
+        description: 'The ID of the public Google Drive folder (from the URL)'
+        required: true
+        type: string
+      archive_identifier:
+        description: 'Unique ID for the Archive.org item (leave blank to auto-generate)'
+        required: false
+        type: string
+      archive_title:
+        description: 'Page Title for the Archive.org item'
+        required: true
+        type: string
+      archive_mediatype:
+        description: 'Select the media type for the item'
+        required: true
+        type: choice
+        options:
+        - texts
+        - audio
+        - movies
+        - software
+        - image
+        - data
+        default: 'texts'
+      archive_description:
+        description: 'A description of the item page'
+        required: false
+        type: string
+      archive_subjects:
+        description: 'Keywords, separated by commas (e.g., data, backup, files)'
+        required: false
+        type: string
+      archive_creator:
+        description: 'Creator of the content'
+        required: false
+        type: string
+      archive_date:
+        description: 'Date work was created/published (YYYY-MM-DD)'
+        required: false
+        type: string
+      archive_test_item:
+        description: 'Is this a test item?'
+        required: true
+        type: choice
+        options:
+        - 'No'
+        - 'Yes (will be removed after 30 days)'
+        default: 'No'
+      archive_license:
+        description: 'Select a license for the item'
+        required: true
+        type: choice
+        options:
+        - 'Leave license blank'
+        - 'CC0 - "No Rights Reserved"'
+        - 'Public Domain Mark 1.0'
+        - 'Creative Commons Attribution 4.0'
+        - 'Creative Commons Attribution-ShareAlike 4.0'
+        - 'Creative Commons Attribution-NonCommercial 4.0'
+        - 'Creative Commons Attribution-NonCommercial-ShareAlike 4.0'
+        default: 'Leave license blank'
+
+jobs:
+  upload-to-archive:
+    runs-on: ubuntu-latest
+    steps:
+      # Step 1: Check out your repository code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Install latest rclone manually
+      # This replaces the 'uses: rclone/rclone-action' to avoid linter errors.
+      - name: Install latest rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+
+      # Step 3: Create rclone config file from secret
+      # The linter might warn about secrets.RCLONE_CONF, but this is the correct syntax.
+      # Secrets are only available at runtime.
+      - name: Create rclone config
+        run: |
+          echo "${{ secrets.RCLONE_CONF }}" > rclone.conf
+
+      # Step 4: Install internetarchive tool
+      - name: Install internetarchive tool
+        run: |
+          python -m pip install --upgrade pip
+          pip install internetarchive
+
+      # Step 5: Create a directory to hold the downloaded files
+      - name: Create download directory
+        run: mkdir gdrive_files
+
+      # Step 6: Download recursively from Google Drive using rclone
+      - name: Download recursively from Google Drive
+        run: |
+          rclone copy gdrive: gdrive_files/ \
+            --config ./rclone.conf \
+            --drive-root-folder-id ${{ github.event.inputs.google_drive_folder_id }} \
+            -P
+
+      # Step 7: Create local Archive.org config file
+      - name: Create local Archive.org config file
+        run: |
+          echo "[s3]" > ia.cfg
+          echo "access = ${{ secrets.IA_ACCESS_KEY }}" >> ia.cfg
+          echo "secret = ${{ secrets.IA_SECRET_KEY }}" >> ia.cfg
+
+      # Step 8: Prepare subject tags for the upload command
+      - name: Prepare Subject Tags
+        run: |
+          tags="${{ github.event.inputs.archive_subjects }}"
+          echo "formatted_tags=${tags//,/;}" >> $GITHUB_ENV
+
+      # Step 9: Set Archive.org Identifier (use default if blank)
+      - name: Set Archive.org Identifier
+        run: |
+          if [[ -z "${{ github.event.inputs.archive_identifier }}" ]]; then
+            echo "Identifier is blank, creating a default ID."
+            echo "ARCHIVE_ID_FINAL=gdrive-upload-${{ github.run_id }}-${{ github.run_attempt }}" >> $GITHUB_ENV
+          else
+            echo "Using user-provided identifier."
+            echo "ARCHIVE_ID_FINAL=${{ github.event.inputs.archive_identifier }}" >> $GITHUB_ENV
+          fi
+
+      # Step 10: Build and execute the upload command
+      - name: Upload files to Archive.org
+        run: |
+          # Determine the correct collection based on the mediatype
+          MEDIATYPE="${{ github.event.inputs.archive_mediatype }}"
+          if [[ "$MEDIATYPE" == "data" ]]; then
+            ARCHIVE_COLLECTION="opensource_media"
+          elif [[ "$MEDIATYPE" == "texts" ]]; then
+            ARCHIVE_COLLECTION="opensource"
+          else
+            ARCHIVE_COLLECTION="opensource_$MEDIATYPE"
+          fi
+
+          # Start with the base command and required metadata
+          # The linter might warn about env.ARCHIVE_ID_FINAL and env.formatted_tags, 
+          # but this is the correct way to access variables set in previous steps via GITHUB_ENV.
+          CMD="ia --config-file ./ia.cfg upload ${{ env.ARCHIVE_ID_FINAL }} gdrive_files/ \
+            --metadata=\"title:${{ github.event.inputs.archive_title }}\" \
+            --metadata=\"collection:$ARCHIVE_COLLECTION\" \
+            --metadata=\"mediatype:$MEDIATYPE\""
+
+          # Add optional text metadata if it exists
+          if [[ -n "${{ github.event.inputs.archive_description }}" ]]; then
+            CMD="$CMD --metadata=\"description:${{ github.event.inputs.archive_description }}\""
+          fi
+          if [[ -n "${{ env.formatted_tags }}" ]]; then
+            CMD="$CMD --metadata=\"subject:${{ env.formatted_tags }}\""
+          fi
+          if [[ -n "${{ github.event.inputs.archive_creator }}" ]]; then
+            CMD="$CMD --metadata=\"creator:${{ github.event.inputs.archive_creator }}\""
+          fi
+          if [[ -n "${{ github.event.inputs.archive_date }}" ]]; then
+            CMD="$CMD --metadata=\"date:${{ github.event.inputs.archive_date }}\""
+          fi
+
+          # Handle Test Item selection
+          if [[ "${{ github.event.inputs.archive_test_item }}" == "Yes (will be removed after 30 days)" ]]; then
+            CMD="$CMD --metadata=\"test-item:yes\""
+          fi
+
+          # Handle License selection
+          LICENSE_URL=""
+          if [[ "${{ github.event.inputs.archive_license }}" == "CC0 - \"No Rights Reserved\"" ]]; then
+            LICENSE_URL="https://creativecommons.org/publicdomain/zero/1.0/"
+          elif [[ "${{ github.event.inputs.archive_license }}" == "Public Domain Mark 1.0" ]]; then
+            LICENSE_URL="https://creativecommons.org/publicdomain/mark/1.0/"
+          elif [[ "${{ github.event.inputs.archive_license }}" == "Creative Commons Attribution 4.0" ]]; then
+            LICENSE_URL="https://creativecommons.org/licenses/by/4.0/"
+          elif [[ "${{ github.event.inputs.archive_license }}" == "Creative Commons Attribution-ShareAlike 4.0" ]]; then
+            LICENSE_URL="https://creativecommons.org/licenses/by-sa/4.0/"
+          elif [[ "${{ github.event.inputs.archive_license }}" == "Creative Commons Attribution-NonCommercial 4.0" ]]; then
+            LICENSE_URL="https://creativecommons.org/licenses/by-nc/4.0/"
+          elif [[ "${{ github.event.inputs.archive_license }}" == "Creative Commons Attribution-NonCommercial-ShareAlike 4.0" ]]; then
+            LICENSE_URL="https://creativecommons.org/licenses/by-nc-sa/4.0/"
+          fi
+          
+          if [[ -n "$LICENSE_URL" ]]; then
+            CMD="$CMD --metadata=\"licenseurl:$LICENSE_URL\""
+          fi
+
+          # Execute the final command
+          echo "Executing command..."
+          eval $CMD
