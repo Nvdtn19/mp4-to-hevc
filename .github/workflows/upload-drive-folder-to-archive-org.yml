@@ -70,24 +70,30 @@ jobs:
       - name: List downloaded files
         run: ls -R ./gdrive_downloads
 
-      # 6. (DEBUGGING STEP) Verify that secrets are not empty
-      # This step helps confirm that your secrets are correctly configured in GitHub.
-      # If the output shows 'is set:', the secret is empty.
-      # If it shows 'is set: true', the secret has a value.
-      - name: Verify Secrets
+      # 6. NEW: Configure Internet Archive CLI directly
+      # This step creates the config file for the 'ia' tool, which is more reliable
+      # than relying on environment variables that might not be picked up.
+      - name: Configure Internet Archive CLI
         env:
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
-          echo "Verifying secrets..."
-          echo "IA_ACCESS_KEY is set: ${IA_ACCESS_KEY:+true}"
-          echo "IA_SECRET_KEY is set: ${IA_SECRET_KEY:+true}"
+          # First, check if the secrets are empty. This is a common cause of the error.
+          if [ -z "$IA_ACCESS_KEY" ] || [ -z "$IA_SECRET_KEY" ]; then
+            echo "::error:: IA_ACCESS_KEY or IA_SECRET_KEY is not set. Please check your repository secrets in Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          
+          # Create the configuration directory and then the configuration file.
+          mkdir -p ~/.config
+          echo "[s3]" > ~/.config/internet-archive.cfg
+          echo "access = $IA_ACCESS_KEY" >> ~/.config/internet-archive.cfg
+          echo "secret = $IA_SECRET_KEY" >> ~/.config/internet-archive.cfg
+          echo "Configuration file created successfully."
 
-      # 7. Upload to Archive.org using user-provided or default metadata
+      # 7. Upload to Archive.org
+      # The 'env' block is no longer needed here because the CLI is now configured.
       - name: Upload to Archive.org
-        env:
-          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
           # --- Set Metadata ---
           CURRENT_DATE=$(date +%Y-%m-%d)
