@@ -57,7 +57,6 @@ on:
           - 'Creative Commons Attribution-NonCommercial-ShareAlike (Allow Remixing, require Share-Alike, Prohibit Commercial Use)'
           - 'Creative Commons Attribution-NonCommercial-NoDerivs (No Remixing, Prohibit Commercial Use)'
           - 'Public Domain'
-      # Consolidated optional metadata into one JSON string input (10th input)
       additional_metadata_json:
         description: 'Optional metadata (JSON, e.g., {"creator": "John Doe", "date": "2023-01-01", "subject": "tag1,tag2"})'
         required: false
@@ -79,7 +78,6 @@ jobs:
       run: |
         pip install internetarchive
 
-    # --- Step 1: Download files from Direct URLs (Conditional) ---
     - name: Download files from Direct URLs
       id: download_direct_urls
       if: ${{ github.event.inputs.upload_method == 'Direct URL File(s)' }}
@@ -107,16 +105,14 @@ jobs:
         printf "%s\n" "${FILES_TO_UPLOAD_ARRAY[@]}" > files_to_upload.txt
         echo "files_list=$(cat files_to_upload.txt | xargs echo)" >> "$GITHUB_OUTPUT"
 
-    # --- Step 2: Download files from Google Drive (Conditional) ---
     - name: Download files from Google Drive
       id: download_gdrive
       if: ${{ github.event.inputs.upload_method == 'Google Drive Folder' }}
       env:
         GCP_SA_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
         GDRIVE_FOLDER_ID: ${{ github.event.inputs.gdrive_folder_id }}
-        DOWNLOAD_DIR: "temp_downloads" # Pass this to the Python script
+        DOWNLOAD_DIR: "temp_downloads"
       run: |
-        # Ensure the download directory exists before the script runs
         mkdir -p "$DOWNLOAD_DIR"
 
         if [[ -z "$GDRIVE_FOLDER_ID" ]]; then
@@ -130,29 +126,22 @@ jobs:
         
         pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
-        # Write the service account key to a file within the DOWNLOAD_DIR
         echo "$GCP_SA_KEY" > "$DOWNLOAD_DIR/service_account_key.json"
 
-        # Execute the separate Python script from the 'script/' folder
-        python3 ./script/download_gdrive.py # Path adjusted for 'script/' folder
+        python3 ./script/download_gdrive.py
 
-        # Output the list of files to be consumed by the next step
         echo "files_list=$(cat files_to_upload.txt | xargs echo)" >> "$GITHUB_OUTPUT"
 
-    # --- Step 3: Prepare All Metadata (Common Step) ---
     - name: Prepare All Metadata
-      id: prepare_metadata # ID for accessing outputs
+      id: prepare_metadata
       env:
-        # Pass the JSON input as an environment variable to the Python script
         ADDITIONAL_JSON_INPUT: ${{ github.event.inputs.additional_metadata_json }}
       run: |
         METADATA_ARGS_ARRAY=()
         
-        # Mandatory fields
         METADATA_ARGS_ARRAY+=("--metadata=title:${{ github.event.inputs.page_title }}")
         METADATA_ARGS_ARRAY+=("--metadata=description:${{ github.event.inputs.description }}")
         
-        # Handle Collection Mapping
         declare -A COLLECTION_MAP
         COLLECTION_MAP["Community data"]="opensource_media"
         COLLECTION_MAP["Community texts"]="opensource_texts"
@@ -164,7 +153,6 @@ jobs:
         COLLECTION_VALUE="${COLLECTION_MAP["$SELECTED_COLLECTION_DISPLAY"]}"
         METADATA_ARGS_ARRAY+=("--metadata=collection:$COLLECTION_VALUE")
 
-        # Handle License Mapping
         declare -A LICENSE_MAP
         LICENSE_MAP["Leave license blank"]=""
         LICENSE_MAP["CC0 — “No Rights Reserved”"]="http://creativecommons.org/publicdomain/zero/1.0/"
@@ -186,35 +174,33 @@ jobs:
           METADATA_ARGS_ARRAY+=("--metadata=test_item:true")
         fi
         
-        # --- Execute the new Python script to parse additional_metadata_json ---
-        # It will print 'ADDITIONAL_METADATA_FLAGS=' followed by the flags
-        # The output is captured to a temporary file, then read back.
         python3 ./script/parse_metadata.py > additional_metadata_flags.txt 2>&1
           
-        # Capture the output from the Python script
-        # Grep for the specific line to avoid capturing potential ::error:: messages if JSON parsing failed
         ADDITIONAL_METADATA_FLAGS=$(grep 'ADDITIONAL_METADATA_FLAGS=' additional_metadata_flags.txt | sed 's/ADDITIONAL_METADATA_FLAGS=//')
         
-        # Add the parsed flags to our array
-        # Read the space-separated string back into a new array, then append to main array
         IFS=' ' read -r -a PARSED_FLAGS_ARRAY <<< "$ADDITIONAL_METADATA_FLAGS"
         for flag in "${PARSED_FLAGS_ARRAY[@]}"; do
           METADATA_ARGS_ARRAY+=("$flag")
         done
 
-        # Output the full array of metadata arguments as a single space-separated string
-        # Using printf "%s\n" and xargs echo ensures elements are space-separated and quoted if they contain spaces.
         printf "%s\n" "${METADATA_ARGS_ARRAY[@]}" > combined_metadata_args.txt
         echo "all_metadata_args=$(cat combined_metadata_args.txt | xargs echo)" >> "$GITHUB_OUTPUT"
 
 
-    # --- Step 4: Upload files to Archive.org (Common Step) ---
     - name: Upload files to Archive.org
       run: |
-        # Configure internetarchive tool here, as it might be a new shell context
+        # Enable shell debugging to show every command executed
+        set -x
+
         echo "[s3]" > ~/.ia
         echo "access = ${{ secrets.IA_ACCESS_KEY }}" >> ~/.ia
         echo "secret = ${{ secrets.IA_SECRET_KEY }}" >> ~/.ia
+
+        # --- Test Internet Archive Authentication ---
+        echo "--- Testing Internet Archive Authentication (ia whoami) ---"
+        ia whoami 2>&1 || { echo "::error::Internet Archive authentication failed. Please check IA_ACCESS_KEY and IA_SECRET_KEY secrets."; exit 1; }
+        echo "--- Authentication Test Complete ---"
+        # -----------------------------------------------------------
 
         IDENTIFIER="${{ github.event.inputs.page_url || '' }}"
         if [ -z "$IDENTIFIER" ]; then
@@ -240,19 +226,18 @@ jobs:
           exit 0
         fi
 
-        # Get all metadata arguments from the previous 'Prepare All Metadata' step
+        # --- Verify file existence before upload ---
+        echo "--- Verifying downloaded files ---"
+        ls -lR temp_downloads/
+        echo "----------------------------------"
+
         ALL_METADATA_FLAGS_STR="${{ steps.prepare_metadata.outputs.all_metadata_args }}"
-        
-        # Split the string into an array, respecting spaces within quoted arguments
-        # This is crucial for correctly passing arguments to 'ia upload'
         IFS=$'\n' read -r -d '' -a ALL_METADATA_FLAGS_ARRAY < <(printf "%s" "$ALL_METADATA_FLAGS_STR" | xargs -n 1 printf "%s\n")
 
-        echo "--- Debugging ia upload ---"
+        echo "--- Debugging ia upload (Final Attempt) ---"
         echo "Identifier: $IDENTIFIER"
         echo "Files to upload: ${FILES_TO_UPLOAD[@]}"
-        echo "Metadata flags: ${ALL_METADATA_FLAGS_ARRAY[@]}" # This will print each element on a new line
-        echo "--------------------------"
+        echo "Metadata flags: ${ALL_METADATA_FLAGS_ARRAY[@]}"
+        echo "------------------------------------------"
 
-        # Execute ia upload with all files and metadata flags
-        # The '2>&1' redirects stderr to stdout so all output is visible in GitHub Actions logs
         ia upload "$IDENTIFIER" "${FILES_TO_UPLOAD[@]}" "${ALL_METADATA_FLAGS_ARRAY[@]}" 2>&1
