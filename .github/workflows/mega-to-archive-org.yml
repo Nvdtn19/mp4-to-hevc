@@ -1,67 +1,185 @@
-name: Mega to Archive.org 
+# This GitHub Action downloads files/folders from a public MEGA link
+# and uploads them to Archive.org with detailed metadata.
+
+# To use this:
+# 1. Place this file in your GitHub repository at: .github/workflows/upload_to_archive.yml
+# 2. Add your Archive.org keys as secrets in your repository's settings:
+#    - IA_ACCESS_KEY: Your S3-style Access Key.
+#    - IA_SECRET_KEY: Your S3-style Secret Key.
+# 3. Go to the "Actions" tab in your repository, select this workflow,
+#    and click "Run workflow" to start.
+
+name: Mega to Archive.org Uploader
 
 on:
-  workflow_dispatch: # Allows manual triggering of the workflow
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+    inputs:
+      mega_link:
+        description: 'Public MEGA Folder or File Link'
+        required: true
+      archive_identifier:
+        description: 'Item ID (Optional). If blank, a unique ID will be generated from the title.'
+        required: false
+      archive_title:
+        description: 'Page Title'
+        required: true
+      archive_collection:
+        description: 'Select the Archive.org Collection'
+        type: choice
+        required: true
+        options:
+          - 'Data'
+          - 'Texts'
+          - 'Audio'
+          - 'Movies'
+          - 'Software'
+          - 'Image'
+          - 'Community'
+      archive_license:
+        description: 'Select the License'
+        type: choice
+        required: true
+        options:
+          - 'CC0 - No Rights Reserved'
+          - 'Creative Commons: Attribution 4.0'
+          - 'Creative Commons: Attribution-ShareAlike 4.0'
+          - 'Creative Commons: Attribution-NonCommercial 4.0'
+          - 'Creative Commons: Attribution-NonCommercial-ShareAlike 4.0'
+          - 'Public Domain Mark 1.0'
+          - 'Leave license blank'
+      test_item:
+        description: 'Is this a test item?'
+        type: choice
+        required: true
+        options:
+          - 'No'
+          - 'Yes'
+      archive_description:
+        description: 'Item Description'
+        required: false
+      archive_subjects:
+        description: 'Subject Tags (comma-separated)'
+        required: false
+      archive_creator:
+        description: 'Content Creator'
+        required: false
+      archive_date:
+        description: 'Publish Date (YYYY-MM-DD)'
+        required: false
 
 jobs:
-  transfer:
+  download-and-upload:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Install rclone
-        # Installs the latest version of rclone
-        run: |
-          sudo -v ; curl https://rclone.org/install.sh | sudo bash
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - name: Install megacmd
-        # Installs the official MEGA command-line tool on the runner
+      - name: Install and Download from MEGA (Alternative Method)
         run: |
+          # --- Installation using megatools (more stable) ---
+          echo "Installing megatools..."
           sudo apt-get update
-          sudo apt-get install -y wget
-          # Using the package for Ubuntu 22.04, which is the base for the latest GitHub runners
-          wget https://mega.nz/linux/repo/xUbuntu_22.04/amd64/megacmd-xUbuntu_22.04_amd64.deb
-          sudo apt install -y ./megacmd-xUbuntu_22.04_amd64.deb
+          sudo apt-get install -y megatools
+          echo "Installation complete."
+          # --- Download ---
+          echo "Starting download from MEGA..."
+          # Create the target directory for the download
+          mkdir ./download_content
+          # Use megadl, which handles both file and folder links, and specify the output path
+          megadl --path ./download_content "${{ github.event.inputs.mega_link }}"
+          echo "Download complete."
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
 
-      - name: Login to Mega
-        # Logs into Mega using credentials stored in GitHub secrets
-        env:
-          MEGA_EMAIL: ${{ secrets.MEGA_EMAIL }}
-          MEGA_PASSWORD: ${{ secrets.MEGA_PASSWORD }}
+      - name: Install Internet Archive Client
+        run: pip install internetarchive
+
+      - name: Set Current Date if Not Provided
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+      - name: Build Upload Command
+        id: build_command
         run: |
-          mega-login "$MEGA_EMAIL" "$MEGA_PASSWORD"
-
-      - name: Import Mega Link and Serve as WebDAV
-        # Create a directory, import the link, and serve the ENTIRE account root (/) via WebDAV.
-        # This is more stable than serving a sub-directory.
-        run: |
-          mega-mkdir /imported-from-mega
-          mega-import 'https://mega.nz/folder/6uwARLIS#pjaTvXrkmBTkaE0b5czHBA' /imported-from-mega
-          mega-webdav / --port=4443 --public &
-          sleep 5 # Give the server a moment to initialize
-
-      - name: Configure rclone and Upload to Archive.org
-        # Sets up rclone configuration using environment variables and then runs the copy command.
-        # This step now includes obscuring the password for the WebDAV remote.
-        env:
-          # WebDAV remote configuration (password will be set in the run step)
-          RCLONE_CONFIG_WEBDAV_TYPE: webdav
-          RCLONE_CONFIG_WEBDAV_URL: http://127.0.0.1:4443
-          RCLONE_CONFIG_WEBDAV_VENDOR: other
-          RCLONE_CONFIG_WEBDAV_USER: ${{ secrets.MEGA_EMAIL }}
-          MEGA_PASSWORD: ${{ secrets.MEGA_PASSWORD }}
-
-          # Internet Archive remote configuration using secrets
-          RCLONE_CONFIG_ARCHIVE_TYPE: internetarchive
-          RCLONE_CONFIG_ARCHIVE_ACCESS_KEY_ID: ${{ secrets.IA_ACCESS_KEY }}
-          RCLONE_CONFIG_ARCHIVE_SECRET_ACCESS_KEY: ${{ secrets.IA_SECRET_KEY }}
-        run: |
-          # Obscure the password for rclone and export it to the environment
-          OBSCURED_PASS=$(rclone obscure "$MEGA_PASSWORD")
-          export RCLONE_CONFIG_WEBDAV_PASS="$OBSCURED_PASS"
-
-          echo "Rclone configuration is set via environment variables. Verifying remotes:"
-          rclone config show
+          # Step 1: Determine the final item identifier.
+          IDENTIFIER="${{ github.event.inputs.archive_identifier }}"
+          if [ -z "$IDENTIFIER" ]; then
+            echo "No Item ID provided, generating a new one..."
+            SANITIZED_TITLE=$(echo "${{ github.event.inputs.archive_title }}" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]/-/g' -e 's/--*//g' -e 's/^-//' -e 's/-$//')
+            TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
+            IDENTIFIER="${SANITIZED_TITLE:-item}-${TIMESTAMP}"
+          fi
+          echo "Final Item ID: $IDENTIFIER"
+          echo "final_identifier=$IDENTIFIER" >> $GITHUB_OUTPUT
+          # Step 2: Map the user-friendly collection name to the correct technical ID.
+          COLLECTION_INPUT="${{ github.event.inputs.archive_collection }}"
+          TARGET_COLLECTION=""
+          case "$COLLECTION_INPUT" in
+            "Data" | "Texts")
+              TARGET_COLLECTION="opensource_media"
+              ;;
+            "Movies")
+              TARGET_COLLECTION="opensource_movies"
+              ;;
+            "Audio")
+              TARGET_COLLECTION="opensource_audio"
+              ;;
+            "Software")
+              TARGET_COLLECTION="opensource_software"
+              ;;
+            "Image")
+              TARGET_COLLECTION="opensource_images"
+              ;;
+            *)
+              # Default case for "Community" or any other value
+              TARGET_COLLECTION="opensource_media"
+              ;;
+          esac
+          echo "Input Collection: '$COLLECTION_INPUT' -> Mapped to: '$TARGET_COLLECTION'"
+          # Step 3: Build the full `ia upload` command with all metadata.
+          CMD="ia upload '$IDENTIFIER' ./download_content/*"
+          CMD="$CMD --metadata=\"title:${{ github.event.inputs.archive_title }}\""
+          CMD="$CMD --metadata=\"collection:$TARGET_COLLECTION\""
+          CMD="$CMD --metadata=\"description:${{ github.event.inputs.archive_description }}\""
+          CMD="$CMD --metadata=\"subject:${{ github.event.inputs.archive_subjects }}\""
+          CMD="$CMD --metadata=\"creator:${{ github.event.inputs.archive_creator }}\""
+          DATE="${{ github.event.inputs.archive_date || steps.date.outputs.date }}"
+          CMD="$CMD --metadata=\"date:$DATE\""
+          if [ "${{ github.event.inputs.test_item }}" == "Yes" ]; then
+            CMD="$CMD --metadata=\"test-item:yes\""
+          fi
+          LICENSE_URL=""
+          case "${{ github.event.inputs.archive_license }}" in
+            "CC0 - No Rights Reserved") LICENSE_URL="http://creativecommons.org/publicdomain/zero/1.0/" ;;
+            "Creative Commons: Attribution 4.0") LICENSE_URL="http://creativecommons.org/licenses/by/4.0/" ;;
+            "Creative Commons: Attribution-ShareAlike 4.0") LICENSE_URL="http://creativecommons.org/licenses/by-sa/4.0/" ;;
+            "Creative Commons: Attribution-NonCommercial 4.0") LICENSE_URL="http://creativecommons.org/licenses/by-nc/4.0/" ;;
+            "Creative Commons: Attribution-NonCommercial-ShareAlike 4.0") LICENSE_URL="http://creativecommons.org/licenses/by-nc-sa/4.0/" ;;
+            "Public Domain Mark 1.0") LICENSE_URL="http://creativecommons.org/publicdomain/mark/1.0/" ;;
+          esac
+          if [ -n "$LICENSE_URL" ]; then
+            CMD="$CMD --metadata=\"licenseurl:$LICENSE_URL\""
+          fi
           
-          echo "Starting upload to Archive.org..."
-          # Copies files from the 'imported-from-mega' directory on the WebDAV remote
-          # to the specified existing Archive.org item
-          rclone copy webdav:imported-from-mega/ archive:gdrive-upload-16031443727-1/ --progress
+          echo "#!/bin/bash" > ./upload_script.sh
+          echo "$CMD" >> ./upload_script.sh
+          chmod +x ./upload_script.sh
+      - name: Upload Content to Archive.org
+        env:
+          # Authenticate using the secrets stored in the repository settings.
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          echo "The following command will be executed:"
+          cat ./upload_script.sh
+          echo "---"
+          ./upload_script.sh
+      - name: ✅ All Done!
+        run: |
+          echo "Upload complete!"
+          # Use the output from the build step to get the correct final ID for the link.
+          echo "Access your item at: https://archive.org/details/${{ steps.build_command.outputs.final_identifier }}"
