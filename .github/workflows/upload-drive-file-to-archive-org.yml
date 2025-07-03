@@ -46,7 +46,6 @@ jobs:
         run: |
           curl -L -o rclone.deb https://downloads.rclone.org/rclone-current-linux-amd64.deb
           sudo dpkg -i rclone.deb
-          rclone version
 
       - name: Decode rclone.conf from secret
         run: |
@@ -60,11 +59,20 @@ jobs:
 
       - name: Download file from Google Drive
         run: |
+          echo "--- Verifying rclone before download ---"
+          echo "Location of rclone executable:"
+          which rclone
+          echo "Version of rclone being used:"
+          rclone version
+          echo "----------------------------------------"
+          
+          echo "Starting download..."
           rclone copyto "gdrive:${{ steps.get_gdrive_id.outputs.file_id }}" \
             "./${{ github.event.inputs.output_filename }}" \
             --drive-acknowledge-abuse \
+            -v \
             --drive-server-side-across-all-drives
-          echo "File downloaded and named: ${{ github.event.inputs.output_filename }}"
+          echo "File downloaded."
 
       - name: Upload file to Archive.org
         run: |
@@ -81,4 +89,5 @@ jobs:
             --metadata-set "subject=${{ github.event.inputs.archive_subject_tags }}" \
             --metadata-set "collection=test_collection" \
             --metadata-set "mediatype=${{ github.event.inputs.archive_collection }}" \
+            -v \
             --header-upload "x-archive-test-item:${{ github.event.inputs.is_test_item }}"
