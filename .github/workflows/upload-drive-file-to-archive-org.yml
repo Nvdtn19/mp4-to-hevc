@@ -42,9 +42,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install rclone
-        # The action is pinned to a specific commit hash to prevent resolution errors.
-        uses: rclone/rclone-action@5d154a31a774845015383358c081e64983d1ba39
+      - name: Install rclone manually
+        run: curl https://rclone.org/install.sh | sudo bash
 
       - name: Decode rclone.conf from secret
         run: |
