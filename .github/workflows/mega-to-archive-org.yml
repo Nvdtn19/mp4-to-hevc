@@ -104,6 +104,10 @@ jobs:
 
       - name: Build Upload Command
         id: build_command
+        env:
+          # Make secrets available to this specific step
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
           # Step 1: Determine the final item identifier.
           IDENTIFIER="${{ github.event.inputs.archive_identifier }}"
@@ -140,7 +144,9 @@ jobs:
               ;;
           esac
           echo "Input Collection: '$COLLECTION_INPUT' -> Mapped to: '$TARGET_COLLECTION'"
+          
           # Step 3: Build the full `ia upload` command with all metadata.
+          # Prepending the command with the ENV variables ensures they are available to the `ia` tool.
           CMD="ia upload '$IDENTIFIER' ./download_content/*"
           CMD="$CMD --metadata=\"title:${{ github.event.inputs.archive_title }}\""
           CMD="$CMD --metadata=\"collection:$TARGET_COLLECTION\""
@@ -165,19 +171,19 @@ jobs:
             CMD="$CMD --metadata=\"licenseurl:$LICENSE_URL\""
           fi
           
+          # Write the command to the script file.
           echo "#!/bin/bash" > ./upload_script.sh
-          echo "$CMD" >> ./upload_script.sh
+          # Pass the secrets directly to the `ia` command in the script.
+          echo "ia --config-file <(printf '[s3]\\naccess = $IA_ACCESS_KEY\\nsecret = $IA_SECRET_KEY') upload '$IDENTIFIER' ./download_content/* ${CMD#*upload '$IDENTIFIER' ./download_content/*}" >> ./upload_script.sh
           chmod +x ./upload_script.sh
+
       - name: Upload Content to Archive.org
-        env:
-          # Authenticate using the secrets stored in the repository settings.
-          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
           echo "The following command will be executed:"
           cat ./upload_script.sh
           echo "---"
           ./upload_script.sh
+          
       - name: ✅ All Done!
         run: |
           echo "Upload complete!"
