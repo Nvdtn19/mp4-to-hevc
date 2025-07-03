@@ -21,6 +21,14 @@ jobs:
           wget https://mega.nz/linux/repo/xUbuntu_22.04/amd64/megacmd-xUbuntu_22.04_amd64.deb
           sudo apt install -y ./megacmd-xUbuntu_22.04_amd64.deb
 
+      - name: Login to Mega
+        # Logs into Mega using credentials stored in GitHub secrets
+        env:
+          MEGA_EMAIL: ${{ secrets.MEGA_EMAIL }}
+          MEGA_PASSWORD: ${{ secrets.MEGA_PASSWORD }}
+        run: |
+          mega-login "$MEGA_EMAIL" "$MEGA_PASSWORD"
+
       - name: Import Mega Link and Serve as WebDAV
         # First, imports the public Mega folder link into the session.
         # The destination path is provided as a positional argument.
