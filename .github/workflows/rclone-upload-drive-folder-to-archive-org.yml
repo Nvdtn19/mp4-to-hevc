@@ -74,11 +74,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Install Dependencies (jq, rclone, internetarchive)
+      # Step 2: Install Dependencies (rclone, internetarchive)
       - name: Install Dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
           curl https://rclone.org/install.sh | sudo bash
           python -m pip install --upgrade pip
           pip install internetarchive
@@ -108,17 +106,15 @@ jobs:
           elif [[ $URL == *"/file/d/"* ]]; then
             # Extract File ID from URL
             FILE_ID=$(echo "$URL" | sed -n 's|.*/d/\([^/?]*\).*|\1|p')
-            echo "--- Looking up filename for File ID: $FILE_ID ---"
+            DOWNLOAD_URL="https://drive.google.com/uc?export=download&id=${FILE_ID}"
             
-            # This is the corrected, more direct way to get the file's metadata.
-            # It asks rclone for information about the specific file ID.
-            FILENAME=$(rclone lsjson "gdrive:{${FILE_ID}}" --config ./rclone.conf --drive-shared-with-me | jq -r '.[0].Name')
+            echo "--- Looking up filename for File ID: $FILE_ID ---"
+            # Use curl to get the download headers and extract the original filename.
+            # This is a very reliable method that avoids rclone's file-finding complexities.
+            FILENAME=$(curl -sJ -L -w '%{filename_effective}' "$DOWNLOAD_URL" -o /dev/null)
 
-            if [[ -n "$FILENAME" && "$FILENAME" != "null" ]]; then
+            if [[ -n "$FILENAME" ]]; then
               echo "--- Filename found: $FILENAME. Downloading... ---"
-              # Construct the direct download URL for the file.
-              DOWNLOAD_URL="https://drive.google.com/uc?export=download&id=${FILE_ID}"
-              
               # Use rclone copyurl and provide a full destination path with the correct filename.
               rclone copyurl "$DOWNLOAD_URL" "gdrive_files/${FILENAME}" \
                 --config ./rclone.conf \
