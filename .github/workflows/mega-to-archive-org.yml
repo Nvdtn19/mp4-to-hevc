@@ -1,5 +1,5 @@
-# This GitHub Action downloads files/folders from a public MEGA link
-# and uploads them to Archive.org with detailed metadata.
+# This GitHub Action downloads files/folders from multiple public MEGA links
+# and uploads them as a single item to Archive.org with detailed metadata.
 
 # To use this:
 # 1. Place this file in your GitHub repository at: .github/workflows/upload_to_archive.yml
@@ -9,14 +9,15 @@
 # 3. Go to the "Actions" tab in your repository, select this workflow,
 #    and click "Run workflow" to start.
 
-name: Mega to Archive.org Uploader
+name: Mega to Archive.org Uploader (Mass Upload)
 
 on:
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
     inputs:
-      mega_link:
-        description: 'Public MEGA Folder or File Link'
+      mega_links:
+        description: 'Public MEGA Folder or File Links (comma-separated)'
+        type: string
         required: true
       archive_identifier:
         description: 'Item ID (Optional). If blank, a unique ID will be generated from the title.'
@@ -76,20 +77,35 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install and Download from MEGA (Alternative Method)
+      - name: Install and Download from MEGA
         run: |
           # --- Installation using megatools (more stable) ---
           echo "Installing megatools..."
           sudo apt-get update
           sudo apt-get install -y megatools
           echo "Installation complete."
+          
           # --- Download ---
-          echo "Starting download from MEGA..."
+          echo "Starting download from multiple MEGA links..."
           # Create the target directory for the download
           mkdir ./download_content
-          # Use megadl, which handles both file and folder links, and specify the output path
-          megadl --path ./download_content "${{ github.event.inputs.mega_link }}"
-          echo "Download complete."
+          
+          # Change the Internal Field Separator to a comma
+          IFS=','
+          # Read the comma-separated string into an array of links
+          read -ra links <<< "${{ github.event.inputs.mega_links }}"
+          # Loop through the array of links
+          for link in "${links[@]}"; do
+            # Trim leading/trailing whitespace from the link
+            trimmed_link=$(echo "$link" | xargs)
+            if [ -n "$trimmed_link" ]; then
+              echo "Downloading from: $trimmed_link"
+              megadl --path ./download_content "$trimmed_link"
+            fi
+          done
+          
+          echo "All downloads complete."
+          
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -195,4 +211,4 @@ jobs:
         run: |
           echo "Upload complete!"
           # Use the output from the build step to get the correct final ID for the link.
-          echo "Access your item at: https://archive.org/details/${{ steps.build_command.outputs.final_identifier }}"
+          echo "Access your item at: https://archive.org/details/${{ github.event.inputs.archive_identifier || steps.build_command.outputs.final_identifier }}"
