@@ -109,9 +109,9 @@ jobs:
             DOWNLOAD_URL="https://drive.google.com/uc?export=download&id=${FILE_ID}"
             
             echo "--- Looking up filename for File ID: $FILE_ID ---"
-            # Use curl to get the download headers and extract the original filename.
-            # This is a very reliable method that avoids rclone's file-finding complexities.
-            FILENAME=$(curl -sJ -L -w '%{filename_effective}' "$DOWNLOAD_URL" -o /dev/null)
+            # Use curl to get only the headers (-I) and parse the Content-Disposition header to find the filename.
+            # This is a robust method to get the real filename from a download link.
+            FILENAME=$(curl -sI -L "$DOWNLOAD_URL" | grep -i 'Content-Disposition' | sed -n 's/.*filename="\\?\([^"]*\\)"\\?.*/\1/p' | sed 's/\r//')
 
             if [[ -n "$FILENAME" ]]; then
               echo "--- Filename found: $FILENAME. Downloading... ---"
