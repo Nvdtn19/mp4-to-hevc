@@ -68,13 +68,6 @@ jobs:
           mkdir -p downloaded_files
           python download_script.py "${{ github.event.inputs.mediafire_file_url }}" "downloaded_files"
 
-      - name: Configure Archive.org credentials
-        env:
-          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
-        run: |
-          ia configure --access-key "$IA_ACCESS_KEY" --secret-key "$IA_SECRET_KEY"
-
       - name: Set Archive.org identifier
         id: set_identifier
         run: |
@@ -85,6 +78,9 @@ jobs:
           fi
 
       - name: Upload to Archive.org
+        env:
+          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
           ia upload ${{ steps.set_identifier.outputs.identifier }} downloaded_files/* \
             --metadata="title:${{ github.event.inputs.archive_title }}" \
