@@ -74,27 +74,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Install latest rclone manually
-      - name: Install latest rclone
+      # Step 2: Install Dependencies
+      - name: Install Dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
           curl https://rclone.org/install.sh | sudo bash
+          python -m pip install --upgrade pip
+          pip install internetarchive
 
       # Step 3: Decode rclone config from Base64 secret
       - name: Create rclone config from secret
         run: |
           echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > rclone.conf
 
-      # Step 4: Install internetarchive tool
-      - name: Install internetarchive tool
-        run: |
-          python -m pip install --upgrade pip
-          pip install internetarchive
-
-      # Step 5: Create a single parent directory for all downloads
+      # Step 4: Create a single parent directory for all downloads
       - name: Create parent download directory
         run: mkdir gdrive_downloads
 
-      # Step 6: Loop through IDs and download folders/files
+      # Step 5: Loop through IDs and download folders/files
       - name: Download from all Google Drive locations
         run: |
           # Use 'tr' to replace commas with spaces for a valid shell loop
@@ -113,34 +111,40 @@ jobs:
                 --drive-root-folder-id "$ID" \
                 -P
             elif [[ "$TYPE" == "file" ]]; then
-              echo "--- Downloading File ID: $ID ---"
-              # This is the corrected command for downloading a single file by its ID.
-              # It uses --drive-shared-with-me to find files not owned by the user
-              # and --include to target the specific file.
-              rclone copy gdrive: gdrive_downloads/ \
-                --config ./rclone.conf \
-                --drive-shared-with-me \
-                --include "/{${ID}}" \
-                -P
+              echo "--- Looking up filename for File ID: $ID ---"
+              # First, get the file's metadata as JSON to find its name.
+              # Use --drive-shared-with-me to find files not owned by the user.
+              FILENAME=$(rclone lsjson gdrive: --config ./rclone.conf --drive-shared-with-me --files-only --include "/{${ID}}" | jq -r '.[0].Name')
+
+              if [[ -n "$FILENAME" && "$FILENAME" != "null" ]]; then
+                echo "--- Downloading File: $FILENAME (ID: $ID) ---"
+                # Now, copy the file using the {ID}filename syntax.
+                rclone copy "gdrive:{${ID}}$FILENAME" gdrive_downloads/ \
+                  --config ./rclone.conf \
+                  --drive-shared-with-me \
+                  -P
+              else
+                echo "--- ERROR: Could not find filename for File ID: $ID. Skipping. ---"
+              fi
             else
               echo "--- WARNING: Skipping invalid item format '$ITEM_SPEC'. Use 'folder:ID' or 'file:ID'. ---"
             fi
           done
 
-      # Step 7: Create local Archive.org config file
+      # Step 6: Create local Archive.org config file
       - name: Create local Archive.org config file
         run: |
           echo "[s3]" > ia.cfg
           echo "access = ${{ secrets.IA_ACCESS_KEY }}" >> ia.cfg
           echo "secret = ${{ secrets.IA_SECRET_KEY }}" >> ia.cfg
 
-      # Step 8: Prepare subject tags for the upload command
+      # Step 7: Prepare subject tags for the upload command
       - name: Prepare Subject Tags
         run: |
           tags="${{ github.event.inputs.archive_subjects }}"
           echo "formatted_tags=${tags//,/;}" >> $GITHUB_ENV
 
-      # Step 9: Set Archive.org Identifier (use default if blank)
+      # Step 8: Set Archive.org Identifier (use default if blank)
       - name: Set Archive.org Identifier
         run: |
           if [[ -z "${{ github.event.inputs.archive_identifier }}" ]]; then
@@ -151,7 +155,7 @@ jobs:
             echo "ARCHIVE_ID_FINAL=${{ github.event.inputs.archive_identifier }}" >> $GITHUB_ENV
           fi
 
-      # Step 10: Build and execute the upload command
+      # Step 9: Build and execute the upload command
       - name: Upload files to Archive.org
         run: |
           # Determine the correct collection based on the mediatype
