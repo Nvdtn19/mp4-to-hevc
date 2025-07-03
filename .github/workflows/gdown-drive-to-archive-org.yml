@@ -67,10 +67,12 @@ jobs:
           set -e
           if [[ "${{ github.event.inputs.google_drive_link }}" == *"/drive/folders/"* ]]; then
             echo "Detected folder link. Downloading recursively."
-            gdown --folder "${{ github.event.inputs.google_drive_link }}" -O downloaded_content/
+            # ADDED --fuzzy flag to correctly handle folder URLs
+            gdown --fuzzy --folder "${{ github.event.inputs.google_drive_link }}" -O downloaded_content/
           else
             echo "Detected file link. Downloading file."
-            gdown "${{ github.event.inputs.google_drive_link }}" -O downloaded_content/
+            # ADDED --fuzzy flag to correctly handle file URLs
+            gdown --fuzzy "${{ github.event.inputs.google_drive_link }}" -O downloaded_content/
           fi
           echo "Download command finished. Contents:"
           ls -R downloaded_content
