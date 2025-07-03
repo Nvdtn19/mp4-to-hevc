@@ -74,12 +74,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Install Dependencies (rclone, gdown, internetarchive)
+      # Step 2: Install Dependencies (rclone, internetarchive)
       - name: Install Dependencies
         run: |
           curl https://rclone.org/install.sh | sudo bash
           python -m pip install --upgrade pip
-          pip install internetarchive gdown
+          pip install internetarchive
 
       # Step 3: Decode rclone config from Base64 secret
       - name: Create rclone config from secret
@@ -96,7 +96,7 @@ jobs:
           URL="${{ github.event.inputs.google_drive_url }}"
           
           if [[ $URL == *"/folders/"* ]]; then
-            # Use rclone for folders, as it's excellent at recursive downloads.
+            # Extract Folder ID from URL
             FOLDER_ID=$(echo "$URL" | sed -n 's|.*/folders/\([^/?]*\).*|\1|p')
             echo "--- Downloading from Folder ID: $FOLDER_ID ---"
             rclone copy gdrive: gdrive_files/ \
@@ -104,10 +104,25 @@ jobs:
               --drive-root-folder-id "$FOLDER_ID" \
               -P
           elif [[ $URL == *"/file/d/"* ]]; then
-            # Use gdown for single files. It's specifically designed to handle
-            # file links and large file warnings correctly.
-            echo "--- Downloading from File URL: $URL ---"
-            gdown "$URL" -O gdrive_files/
+            # Extract File ID from URL
+            FILE_ID=$(echo "$URL" | sed -n 's|.*/d/\([^/?]*\).*|\1|p')
+            echo "--- Looking up filename for File ID: $FILE_ID ---"
+            
+            # Use rclone lsl to get the file listing. The output is like: " size date time name".
+            # We use awk to reliably get the filename, even if it contains spaces.
+            FILENAME=$(rclone lsl "gdrive:{${FILE_ID}}" --config ./rclone.conf --drive-shared-with-me | awk '{for(i=4;i<=NF;i++) printf "%s ", $i; print ""}' | sed 's/ $//')
+
+            if [[ -n "$FILENAME" ]]; then
+              echo "--- Filename found: $FILENAME. Downloading... ---"
+              # Use rclone copyto for a direct file-to-file transfer. This is more robust.
+              rclone copyto "gdrive:{${FILE_ID}}" "gdrive_files/${FILENAME}" \
+                --config ./rclone.conf \
+                --drive-shared-with-me \
+                -P
+            else
+              echo "--- ERROR: Could not find filename for File ID: $FILE_ID. Skipping. ---"
+              exit 1
+            fi
           else
             echo "--- ERROR: Invalid Google Drive URL format. Please provide a valid file or folder link. ---"
             exit 1
