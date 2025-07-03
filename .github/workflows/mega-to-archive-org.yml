@@ -86,9 +86,19 @@ jobs:
         run: |
           echo "Starting download from MEGA..."
           mkdir ./download_content
-          # Use 'rclone copy' which correctly handles both file and folder public links
-          # The remote is defined directly in the command line for simplicity
-          rclone copy ":mega,link='${{ github.event.inputs.mega_link }}':" ./download_content
+          
+          # Create a temporary rclone config file to handle the public link
+          # This is the most reliable method and avoids shell quoting issues.
+          RCLONE_CONFIG_PATH=$(mktemp)
+          echo "[megalink]
+          type = mega
+          link = ${{ github.event.inputs.mega_link }}" > "$RCLONE_CONFIG_PATH"
+          
+          echo "Rclone config created for link."
+          
+          # Use the temporary config to copy the content
+          rclone copy --config "$RCLONE_CONFIG_PATH" megalink: ./download_content
+          
           echo "Download complete."
 
       - name: Set up Python
