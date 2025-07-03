@@ -40,10 +40,15 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install mediafire-downloader internetarchive
+          pip install mediafiredl internetarchive
+
+      - name: Download files from MediaFire
+        run: |
+          mkdir -p downloaded_files
+          mediafiredl "https://www.mediafire.com/folder/${{ github.event.inputs.mediafire_folder_id }}" --path "downloaded_files"
 
       - name: Configure Archive.org credentials
         env:
@@ -52,16 +57,11 @@ jobs:
         run: |
           ia configure --access-key "$IA_ACCESS_KEY" --secret-key "$IA_SECRET_KEY"
 
-      - name: Download files from MediaFire
-        run: |
-          mkdir -p downloaded_files
-          mediafire-downloader "https://www.mediafire.com/folder/${{ github.event.inputs.mediafire_folder_id }}" -o downloaded_files
-
       - name: Set Archive.org identifier
         id: set_identifier
         run: |
           if [ -z "${{ github.event.inputs.archive_page_url_id }}" ]; then
-            echo "identifier=$(date +%s)" >> $GITHUB_OUTPUT
+            echo "identifier=$(date +%s%N)" >> $GITHUB_OUTPUT
           else
             echo "identifier=${{ github.event.inputs.archive_page_url_id }}" >> $GITHUB_OUTPUT
           fi
