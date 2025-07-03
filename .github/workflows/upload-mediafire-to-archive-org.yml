@@ -45,10 +45,28 @@ jobs:
           python -m pip install --upgrade pip
           pip install mediafiredl internetarchive
 
-      - name: Download File from MediaFire
+      - name: Create Python Download Script
+        run: |
+          cat <<'EOF' > download_script.py
+          import sys
+          from mediafiredl import MediafireDL as MF
+
+          if len(sys.argv) != 3:
+              print("Usage: python download_script.py <url> <output_path>")
+              sys.exit(1)
+
+          url = sys.argv[1]
+          output_path = sys.argv[2]
+
+          print(f"Starting download for {url}")
+          MF.Download(url, output_path)
+          print("Download finished successfully.")
+          EOF
+
+      - name: Download File using Python Script
         run: |
           mkdir -p downloaded_files
-          mediafiredl "${{ github.event.inputs.mediafire_file_url }}" --path "downloaded_files"
+          python download_script.py "${{ github.event.inputs.mediafire_file_url }}" "downloaded_files"
 
       - name: Configure Archive.org credentials
         env:
