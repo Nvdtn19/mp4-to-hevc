@@ -74,12 +74,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Install Dependencies (rclone, internetarchive)
+      # Step 2: Install Dependencies (rclone, gdown, internetarchive)
       - name: Install Dependencies
         run: |
           curl https://rclone.org/install.sh | sudo bash
           python -m pip install --upgrade pip
-          pip install internetarchive
+          pip install internetarchive gdown
 
       # Step 3: Decode rclone config from Base64 secret
       - name: Create rclone config from secret
@@ -96,7 +96,7 @@ jobs:
           URL="${{ github.event.inputs.google_drive_url }}"
           
           if [[ $URL == *"/folders/"* ]]; then
-            # Extract Folder ID from URL
+            # Use rclone for folders, as it's excellent at recursive downloads.
             FOLDER_ID=$(echo "$URL" | sed -n 's|.*/folders/\([^/?]*\).*|\1|p')
             echo "--- Downloading from Folder ID: $FOLDER_ID ---"
             rclone copy gdrive: gdrive_files/ \
@@ -104,25 +104,10 @@ jobs:
               --drive-root-folder-id "$FOLDER_ID" \
               -P
           elif [[ $URL == *"/file/d/"* ]]; then
-            # Extract File ID from URL
-            FILE_ID=$(echo "$URL" | sed -n 's|.*/d/\([^/?]*\).*|\1|p')
-            DOWNLOAD_URL="https://drive.google.com/uc?export=download&id=${FILE_ID}"
-            
-            echo "--- Looking up filename for File ID: $FILE_ID ---"
-            # Use curl to get only the headers (-I) and parse the Content-Disposition header to find the filename.
-            # This is a robust method to get the real filename from a download link.
-            FILENAME=$(curl -sI -L "$DOWNLOAD_URL" | grep -i 'Content-Disposition' | sed -n 's/.*filename="\\?\([^"]*\\)"\\?.*/\1/p' | sed 's/\r//')
-
-            if [[ -n "$FILENAME" ]]; then
-              echo "--- Filename found: $FILENAME. Downloading... ---"
-              # Use rclone copyurl and provide a full destination path with the correct filename.
-              rclone copyurl "$DOWNLOAD_URL" "gdrive_files/${FILENAME}" \
-                --config ./rclone.conf \
-                -P
-            else
-              echo "--- ERROR: Could not find filename for File ID: $FILE_ID. Skipping. ---"
-              exit 1
-            fi
+            # Use gdown for single files. It's specifically designed to handle
+            # file links and large file warnings correctly.
+            echo "--- Downloading from File URL: $URL ---"
+            gdown "$URL" -O gdrive_files/
           else
             echo "--- ERROR: Invalid Google Drive URL format. Please provide a valid file or folder link. ---"
             exit 1
