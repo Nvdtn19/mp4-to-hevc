@@ -21,11 +21,12 @@ jobs:
           wget https://mega.nz/linux/repo/xUbuntu_22.04/amd64/megacmd-xUbuntu_22.04_amd64.deb
           sudo apt install -y ./megacmd-xUbuntu_22.04_amd64.deb
 
-      - name: Serve Mega folder as WebDAV
-        # Starts a WebDAV server in the background to serve the public Mega folder
-        # This makes the public, non-owned folder accessible to rclone
+      - name: Import Mega Link and Serve as WebDAV
+        # First, imports the public Mega folder link into the session.
+        # Then, starts a WebDAV server to serve the imported content.
         run: |
-          mega-webdav --public-url="https://mega.nz/folder/6uwARLIS#pjaTvXrkmBTkaE0b5czHBA" --port=4443 &
+          mega-import 'https://mega.nz/folder/6uwARLIS#pjaTvXrkmBTkaE0b5czHBA' --path=/imported-from-mega
+          mega-webdav /imported-from-mega --port=4443 &
           sleep 5 # Give the server a moment to initialize
 
       - name: Configure rclone and Upload to Archive.org
