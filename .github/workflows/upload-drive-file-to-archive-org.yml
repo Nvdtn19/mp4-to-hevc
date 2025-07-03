@@ -57,7 +57,10 @@ jobs:
 
       - name: Download file from Google Drive
         run: |
-          rclone copyto "gdrive:${{ steps.get_gdrive_id.outputs.file_id }}" "./${{ github.event.inputs.output_filename }}" --drive-acknowledge-abuse
+          rclone copyto "gdrive:${{ steps.get_gdrive_id.outputs.file_id }}" \
+            "./${{ github.event.inputs.output_filename }}" \
+            --drive-acknowledge-abuse \
+            --drive-server-side-across-all-drives
           echo "File downloaded and named: ${{ github.event.inputs.output_filename }}"
 
       - name: Upload file to Archive.org
