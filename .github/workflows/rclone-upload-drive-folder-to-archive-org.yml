@@ -1,11 +1,11 @@
-name: Mass Google Drive Uploader to Archive.org
+name: Recursive Google Drive to Archive.org Uploader
 
 # This action is triggered manually from the GitHub Actions tab.
 on:
   workflow_dispatch:
     inputs:
-      google_drive_ids:
-        description: 'A comma-separated list of IDs, prefixed with "folder:" or "file:" (e.g., folder:ID1,file:ID2)'
+      google_drive_url:
+        description: 'The full URL of the public Google Drive folder or file'
         required: true
         type: string
       archive_identifier:
@@ -13,7 +13,7 @@ on:
         required: false
         type: string
       archive_title:
-        description: 'Page Title for the combined Archive.org item'
+        description: 'Page Title for the Archive.org item'
         required: true
         type: string
       archive_mediatype:
@@ -74,7 +74,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Install Dependencies
+      # Step 2: Install Dependencies (rclone, jq, internetarchive)
       - name: Install Dependencies
         run: |
           sudo apt-get update
@@ -88,48 +88,48 @@ jobs:
         run: |
           echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > rclone.conf
 
-      # Step 4: Create a single parent directory for all downloads
-      - name: Create parent download directory
-        run: mkdir gdrive_downloads
+      # Step 4: Create a directory to hold the downloaded files
+      - name: Create download directory
+        run: mkdir gdrive_files
 
-      # Step 5: Loop through IDs and download folders/files
-      - name: Download from all Google Drive locations
+      # Step 5: Download from Google Drive (handles folder and file URLs)
+      - name: Download from Google Drive
         run: |
-          # Use 'tr' to replace commas with spaces for a valid shell loop
-          for ITEM_SPEC in $(echo "${{ github.event.inputs.google_drive_ids }}" | tr ',' ' '); do
-            # Trim whitespace from the item spec
-            ITEM_SPEC=$(echo $ITEM_SPEC | xargs)
+          URL="${{ github.event.inputs.google_drive_url }}"
+          
+          if [[ $URL == *"/folders/"* ]]; then
+            # Extract Folder ID from URL
+            FOLDER_ID=$(echo "$URL" | sed -n 's|.*/folders/\([^/?]*\).*|\1|p')
+            echo "--- Downloading from Folder ID: $FOLDER_ID ---"
+            rclone copy gdrive: gdrive_files/ \
+              --config ./rclone.conf \
+              --drive-root-folder-id "$FOLDER_ID" \
+              -P
+          elif [[ $URL == *"/file/d/"* ]]; then
+            # Extract File ID from URL
+            FILE_ID=$(echo "$URL" | sed -n 's|.*/d/\([^/?]*\).*|\1|p')
+            echo "--- Looking up filename for File ID: $FILE_ID ---"
             
-            # Split into type and ID (e.g., "folder:123" -> TYPE="folder", ID="123")
-            TYPE=$(echo $ITEM_SPEC | cut -d: -f1)
-            ID=$(echo $ITEM_SPEC | cut -d: -f2-)
+            # Use rclone lsjson to get the filename from the ID.
+            # This is the most reliable way to handle single files, especially shared ones.
+            FILENAME=$(rclone lsjson gdrive: --config ./rclone.conf --drive-shared-with-me --files-only --include "/{${FILE_ID}}" | jq -r '.[0].Name')
 
-            if [[ "$TYPE" == "folder" ]]; then
-              echo "--- Downloading from Folder ID: $ID ---"
-              rclone copy gdrive: gdrive_downloads/ \
+            if [[ -n "$FILENAME" && "$FILENAME" != "null" ]]; then
+              echo "--- Downloading File: $FILENAME (ID: $FILE_ID) ---"
+              # Use the {ID}filename syntax which is robust for downloading single files.
+              rclone copy "gdrive:{${FILE_ID}}$FILENAME" gdrive_files/ \
                 --config ./rclone.conf \
-                --drive-root-folder-id "$ID" \
+                --drive-shared-with-me \
                 -P
-            elif [[ "$TYPE" == "file" ]]; then
-              echo "--- Looking up filename for File ID: $ID ---"
-              # First, get the file's metadata as JSON to find its name.
-              # Use --drive-shared-with-me to find files not owned by the user.
-              FILENAME=$(rclone lsjson gdrive: --config ./rclone.conf --drive-shared-with-me --files-only --include "/{${ID}}" | jq -r '.[0].Name')
-
-              if [[ -n "$FILENAME" && "$FILENAME" != "null" ]]; then
-                echo "--- Downloading File: $FILENAME (ID: $ID) ---"
-                # Now, copy the file using the {ID}filename syntax.
-                rclone copy "gdrive:{${ID}}$FILENAME" gdrive_downloads/ \
-                  --config ./rclone.conf \
-                  --drive-shared-with-me \
-                  -P
-              else
-                echo "--- ERROR: Could not find filename for File ID: $ID. Skipping. ---"
-              fi
             else
-              echo "--- WARNING: Skipping invalid item format '$ITEM_SPEC'. Use 'folder:ID' or 'file:ID'. ---"
+              echo "--- ERROR: Could not find filename for File ID: $FILE_ID. Skipping. ---"
+              # Exit with an error if the file can't be found, to prevent empty uploads.
+              exit 1
             fi
-          done
+          else
+            echo "--- ERROR: Invalid Google Drive URL format. Please provide a valid file or folder link. ---"
+            exit 1
+          fi
 
       # Step 6: Create local Archive.org config file
       - name: Create local Archive.org config file
@@ -169,7 +169,7 @@ jobs:
           fi
 
           # Start with the base command and required metadata
-          CMD="ia --config-file ./ia.cfg upload ${{ env.ARCHIVE_ID_FINAL }} gdrive_downloads/ \
+          CMD="ia --config-file ./ia.cfg upload ${{ env.ARCHIVE_ID_FINAL }} gdrive_files/ \
             --metadata=\"title:${{ github.event.inputs.archive_title }}\" \
             --metadata=\"collection:$ARCHIVE_COLLECTION\" \
             --metadata=\"mediatype:$MEDIATYPE\""
