@@ -74,9 +74,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Install Dependencies (rclone, internetarchive)
+      # Step 2: Install Dependencies (jq, rclone, internetarchive)
       - name: Install Dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
           curl https://rclone.org/install.sh | sudo bash
           python -m pip install --upgrade pip
           pip install internetarchive
@@ -106,16 +108,24 @@ jobs:
           elif [[ $URL == *"/file/d/"* ]]; then
             # Extract File ID from URL
             FILE_ID=$(echo "$URL" | sed -n 's|.*/d/\([^/?]*\).*|\1|p')
-            echo "--- Downloading from File ID: $FILE_ID ---"
+            echo "--- Looking up filename for File ID: $FILE_ID ---"
             
-            # Construct the direct download URL for the file.
-            DOWNLOAD_URL="https://drive.google.com/uc?export=download&id=${FILE_ID}"
-            
-            # Use rclone copyurl and provide a full destination path, including the filename.
-            # We'll use the File ID as the filename for simplicity and uniqueness.
-            rclone copyurl "$DOWNLOAD_URL" "gdrive_files/${FILE_ID}" \
-              --config ./rclone.conf \
-              -P
+            # Use rclone lsjson to get the filename from the ID.
+            FILENAME=$(rclone lsjson gdrive: --config ./rclone.conf --drive-shared-with-me --files-only --include "/{${FILE_ID}}" | jq -r '.[0].Name')
+
+            if [[ -n "$FILENAME" && "$FILENAME" != "null" ]]; then
+              echo "--- Filename found: $FILENAME. Downloading... ---"
+              # Construct the direct download URL for the file.
+              DOWNLOAD_URL="https://drive.google.com/uc?export=download&id=${FILE_ID}"
+              
+              # Use rclone copyurl and provide a full destination path with the correct filename.
+              rclone copyurl "$DOWNLOAD_URL" "gdrive_files/${FILENAME}" \
+                --config ./rclone.conf \
+                -P
+            else
+              echo "--- ERROR: Could not find filename for File ID: $FILE_ID. Skipping. ---"
+              exit 1
+            fi
           else
             echo "--- ERROR: Invalid Google Drive URL format. Please provide a valid file or folder link. ---"
             exit 1
