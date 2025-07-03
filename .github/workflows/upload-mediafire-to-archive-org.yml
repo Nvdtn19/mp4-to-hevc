@@ -67,29 +67,25 @@ jobs:
             echo "identifier=${{ github.event.inputs.archive_page_url_id }}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Prepare files for upload
-        id: prep_files
+      - name: Prepare and Upload to Archive.org
         run: |
-          # Find all files and directories created by the script, excluding git and workflow files
-          # This assumes the downloaded content does not start with a '.'
-          UPLOAD_ITEMS=$(ls -A | grep -vE '^\.git|^\.github|^script|^README\.md')
-          if [ -z "$UPLOAD_ITEMS" ]; then
-            echo "No new files or folders found to upload."
-            exit 1
-          fi
-          echo "items_to_upload=$UPLOAD_ITEMS" >> $GITHUB_OUTPUT
-          echo "Uploading the following items:"
-          echo "$UPLOAD_ITEMS"
-
-      - name: Upload to Archive.org
-        run: |
+          # First, determine which collection to use
           COLLECTION="${{ github.event.inputs.archive_collection_id }}"
           if [ "${{ github.event.inputs.is_test_item }}" = "true" ]; then
             COLLECTION="test_collection"
           fi
           
-          # The shell will expand the variable to list all items
-          ia upload ${{ steps.set_identifier.outputs.identifier }} ${{ steps.prep_files.outputs.items_to_upload }} \
+          # Next, find all downloaded files and folders to upload
+          UPLOAD_ITEMS=$(ls -A | grep -vE '^\.git|^\.github|^script|^README\.md')
+          if [ -z "$UPLOAD_ITEMS" ]; then
+            echo "No new files or folders found to upload."
+            exit 1
+          fi
+          echo "Uploading the following items:"
+          echo "$UPLOAD_ITEMS"
+
+          # Finally, run the upload command with all variables in the same script
+          ia upload ${{ steps.set_identifier.outputs.identifier }} $UPLOAD_ITEMS \
             --metadata="title:${{ github.event.inputs.archive_title }}" \
             --metadata="description:${{ github.event.inputs.archive_description }}" \
             --metadata="subject:${{ github.event.inputs.archive_subject_tags }}" \
