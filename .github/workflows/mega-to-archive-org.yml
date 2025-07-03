@@ -77,17 +77,18 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install rclone
+      - name: Install latest rclone
         run: |
-          sudo apt-get update
-          sudo apt-get install -y rclone
+          # Use the official rclone install script to get the latest version
+          sudo -v ; curl https://rclone.org/install.sh | sudo bash
 
       - name: Download from MEGA using rclone
         run: |
           echo "Starting download from MEGA..."
           mkdir ./download_content
           # Use 'rclone copy' which correctly handles both file and folder public links
-          rclone copy "${{ github.event.inputs.mega_link }}" ./download_content --mega-public-link
+          # The remote is defined directly in the command line for simplicity
+          rclone copy ":mega,link='${{ github.event.inputs.mega_link }}':" ./download_content
           echo "Download complete."
 
       - name: Set up Python
