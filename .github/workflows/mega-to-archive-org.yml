@@ -1,4 +1,4 @@
-name: Mega to Archive.org
+name: Mega to Archive.org 
 
 on:
   workflow_dispatch: # Allows manual triggering of the workflow
