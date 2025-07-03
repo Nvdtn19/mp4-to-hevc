@@ -100,19 +100,27 @@ jobs:
             echo "archive_id=${{ github.event.inputs.archive_id }}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Upload to Internet Archive using Official CLI
+      - name: Configure IA CLI and Upload
         env:
-          # CORRECTED: These are the correct environment variable names for the 'ia' CLI
           IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
           IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
+          echo "Configuring Internet Archive CLI..."
+          # Create the configuration directory
+          mkdir -p ~/.config/internetarchive
+          
+          # Create the configuration file using the secrets
+          # This is the most reliable way to authenticate the IA CLI
+          echo "[s3]" > ~/.config/internetarchive/ia.ini
+          echo "access = ${{ env.IA_ACCESS_KEY }}" >> ~/.config/internetarchive/ia.ini
+          echo "secret = ${{ env.IA_SECRET_KEY }}" >> ~/.config/internetarchive/ia.ini
+
           echo "Starting upload to Internet Archive..."
           
           # Change into the download directory to upload its contents directly
           cd downloaded_content
           
           # Construct the command with all metadata
-          # Note: The identifier is the first argument, and we upload all files/folders with '.*'
           ia upload ${{ steps.generate_id.outputs.archive_id }} ./* \
             --metadata="title:${{ github.event.inputs.archive_title }}" \
             --metadata="collection:${{ github.event.inputs.archive_collection }}" \
@@ -120,4 +128,5 @@ jobs:
             --metadata="subject:${{ github.event.inputs.archive_subjects }}" \
             --metadata="mediatype:data" \
             ${{ github.event.inputs.is_test_item == true && '--test-item' || '' }}
+            
           echo "Upload complete."
