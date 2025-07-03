@@ -1,11 +1,11 @@
-name: Recursive Google Drive to Archive.org Uploader
+name: Mass Google Drive Uploader to Archive.org
 
 # This action is triggered manually from the GitHub Actions tab.
 on:
   workflow_dispatch:
     inputs:
-      google_drive_folder_id:
-        description: 'The ID of the public Google Drive folder (from the URL)'
+      google_drive_ids:
+        description: 'A comma-separated list of IDs, prefixed with "folder:" or "file:" (e.g., folder:ID1,file:ID2)'
         required: true
         type: string
       archive_identifier:
@@ -13,7 +13,7 @@ on:
         required: false
         type: string
       archive_title:
-        description: 'Page Title for the Archive.org item'
+        description: 'Page Title for the combined Archive.org item'
         required: true
         type: string
       archive_mediatype:
@@ -80,7 +80,6 @@ jobs:
           curl https://rclone.org/install.sh | sudo bash
 
       # Step 3: Decode rclone config from Base64 secret
-      # This is a robust way to handle the config file without copy-paste errors.
       - name: Create rclone config from secret
         run: |
           echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > rclone.conf
@@ -91,17 +90,38 @@ jobs:
           python -m pip install --upgrade pip
           pip install internetarchive
 
-      # Step 5: Create a directory to hold the downloaded files
-      - name: Create download directory
-        run: mkdir gdrive_files
+      # Step 5: Create a single parent directory for all downloads
+      - name: Create parent download directory
+        run: mkdir gdrive_downloads
 
-      # Step 6: Download recursively from Google Drive using rclone
-      - name: Download recursively from Google Drive
+      # Step 6: Loop through IDs and download folders/files
+      - name: Download from all Google Drive locations
         run: |
-          rclone copy gdrive: gdrive_files/ \
-            --config ./rclone.conf \
-            --drive-root-folder-id ${{ github.event.inputs.google_drive_folder_id }} \
-            -P
+          # Replace commas with spaces to allow looping
+          for ITEM_SPEC in ${{ join(split(github.event.inputs.google_drive_ids, ','), ' ') }}; do
+            # Trim whitespace from the item spec
+            ITEM_SPEC=$(echo $ITEM_SPEC | xargs)
+            
+            # Split into type and ID (e.g., "folder:123" -> TYPE="folder", ID="123")
+            TYPE=$(echo $ITEM_SPEC | cut -d: -f1)
+            ID=$(echo $ITEM_SPEC | cut -d: -f2-)
+
+            if [[ "$TYPE" == "folder" ]]; then
+              echo "--- Downloading from Folder ID: $ID ---"
+              rclone copy gdrive: gdrive_downloads/ \
+                --config ./rclone.conf \
+                --drive-root-folder-id "$ID" \
+                -P
+            elif [[ "$TYPE" == "file" ]]; then
+              echo "--- Downloading File ID: $ID ---"
+              rclone copy gdrive: gdrive_downloads/ \
+                --config ./rclone.conf \
+                --drive-file-id "$ID" \
+                -P
+            else
+              echo "--- WARNING: Skipping invalid item format '$ITEM_SPEC'. Use 'folder:ID' or 'file:ID'. ---"
+            fi
+          done
 
       # Step 7: Create local Archive.org config file
       - name: Create local Archive.org config file
@@ -141,7 +161,7 @@ jobs:
           fi
 
           # Start with the base command and required metadata
-          CMD="ia --config-file ./ia.cfg upload ${{ env.ARCHIVE_ID_FINAL }} gdrive_files/ \
+          CMD="ia --config-file ./ia.cfg upload ${{ env.ARCHIVE_ID_FINAL }} gdrive_downloads/ \
             --metadata=\"title:${{ github.event.inputs.archive_title }}\" \
             --metadata=\"collection:$ARCHIVE_COLLECTION\" \
             --metadata=\"mediatype:$MEDIATYPE\""
