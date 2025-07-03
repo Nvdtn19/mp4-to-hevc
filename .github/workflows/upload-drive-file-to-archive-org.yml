@@ -1,48 +1,79 @@
-name: 📥 Upload Google Drive File to Archive.org
+name: Upload Google Drive File to Archive.org
 
 on:
   workflow_dispatch:
     inputs:
-      google_drive_url:
+      gdrive_url:
         description: 'Public Google Drive File URL'
         required: true
-        type: string
-      archive_org_item:
-        description: 'Archive.org Item Identifier (e.g., my-cool-item)'
-        required: true
-        type: string
+        default: 'https://drive.google.com/file/d/16BaTIoMU4-oCAwPW4P0r-GB1ucVznZyA/view?usp=drive_link'
       output_filename:
-        description: 'Filename to save as (e.g., video.mp4)'
+        description: 'Name for the downloaded file'
         required: true
-        type: string
+        default: 'downloaded_file'
+      archive_title:
+        description: 'Title for the Archive.org item'
+        required: true
+        default: 'My Uploaded File'
+      archive_page_url_id:
+        description: 'Archive.org Page URL ID (optional, auto-generated if empty)'
+        required: false
+      archive_description:
+        description: 'Description for the Archive.org item'
+        required: false
+        default: 'This file was uploaded from Google Drive via a GitHub Action.'
+      archive_subject_tags:
+        description: 'Subject tags for the Archive.org item (comma-separated)'
+        required: false
+        default: 'github,automation,rclone'
+      archive_collection:
+        description: 'Archive.org collection mediatype (e.g., data, texts, movies)'
+        required: true
+        default: 'data'
+      is_test_item:
+        description: 'Is this a test item? (true/false)'
+        required: true
+        default: 'true'
 
 jobs:
-  download-and-upload:
+  upload:
     runs-on: ubuntu-latest
-
     steps:
-      - name: ⚙️ Install rclone
-        run: |
-          sudo -v ; curl https://rclone.org/install.sh | sudo bash
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: 🔐 Configure rclone for Archive.org
-        env:
-          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+      - name: Install rclone
+        # The action is pinned to a specific commit hash to prevent resolution errors.
+        uses: rclone/rclone-action@5d154a31a774845015383358c081e64983d1ba39
+
+      - name: Decode rclone.conf from secret
         run: |
           mkdir -p ~/.config/rclone
-          printf "[archive]\ntype = s3\nprovider = Other\nenv_auth = false\naccess_key_id = %s\nsecret_access_key = %s\nendpoint = s3.us.archive.org\n" "$IA_ACCESS_KEY" "$IA_SECRET_KEY" > ~/.config/rclone/rclone.conf
+          echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > ~/.config/rclone/rclone.conf
 
-      - name: 🔗 Extract Google Drive File ID
-        id: gdrive
+      - name: Extract Google Drive File ID
+        id: get_gdrive_id
         run: |
-          FILE_ID=$(echo "${{ github.event.inputs.google_drive_url }}" | sed -n 's/.*\/d\/\(.*\)\/view.*/\1/p')
-          echo "id=$FILE_ID" >> $GITHUB_OUTPUT
+          echo "file_id=$(echo "${{ github.event.inputs.gdrive_url }}" | grep -oP '(?<=/d/|id=)[^/&?]+')" >> $GITHUB_OUTPUT
 
-      - name: 📥 Download file from Google Drive
+      - name: Download file from Google Drive
         run: |
-          curl -L -o "${{ github.event.inputs.output_filename }}" "https://drive.google.com/uc?export=download&id=${{ steps.gdrive.outputs.id }}"
+          rclone copyto "gdrive:${{ steps.get_gdrive_id.outputs.file_id }}" "./${{ github.event.inputs.output_filename }}" --drive-acknowledge-abuse
+          echo "File downloaded and named: ${{ github.event.inputs.output_filename }}"
 
-      - name: 📤 Upload file to Archive.org
+      - name: Upload file to Archive.org
         run: |
-          rclone copy "${{ github.event.inputs.output_filename }}" "archive:${{ github.event.inputs.archive_org_item }}/" --progress
+          if [ -z "${{ github.event.inputs.archive_page_url_id }}" ]; then
+            PAGE_URL_ID=$(echo "${{ github.event.inputs.archive_title }}-${{ github.run_id }}" | tr ' ' '-' | tr '[:upper:]' '[:lower:]')
+          else
+            PAGE_URL_ID="${{ github.event.inputs.archive_page_url_id }}"
+          fi
+
+          rclone copyto "./${{ github.event.inputs.output_filename }}" \
+            "archive:${PAGE_URL_ID}/${{ github.event.inputs.output_filename }}" \
+            --metadata-set "title=${{ github.event.inputs.archive_title }}" \
+            --metadata-set "description=${{ github.event.inputs.archive_description }}" \
+            --metadata-set "subject=${{ github.event.inputs.archive_subject_tags }}" \
+            --metadata-set "collection=test_collection" \
+            --metadata-set "mediatype=${{ github.event.inputs.archive_collection }}" \
+            --header-upload "x-archive-test-item:${{ github.event.inputs.is_test_item }}"
