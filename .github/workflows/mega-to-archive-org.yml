@@ -1,5 +1,6 @@
-# This GitHub Action downloads files/folders from a public MEGA link
+# This GitHub Action uses rclone to download files/folders from a public MEGA link
 # and uploads them to Archive.org with detailed metadata.
+# This method is very robust and is the recommended approach.
 
 # To use this:
 # 1. Place this file in your GitHub repository at: .github/workflows/upload_to_archive.yml
@@ -9,7 +10,7 @@
 # 3. Go to the "Actions" tab in your repository, select this workflow,
 #    and click "Run workflow" to start.
 
-name: Mega to Archive.org Uploader
+name: Mega to Archive.org Uploader (Rclone)
 
 on:
   # Allows you to run this workflow manually from the Actions tab
@@ -76,20 +77,17 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install and Download from MEGA (Alternative Method)
+      - name: Install rclone
         run: |
-          # --- Installation using megatools (more stable) ---
-          echo "Installing megatools..."
           sudo apt-get update
-          sudo apt-get install -y megatools
-          echo "Installation complete."
+          sudo apt-get install -y rclone
 
-          # --- Download ---
+      - name: Download from MEGA using rclone
+        run: |
           echo "Starting download from MEGA..."
-          # Create the target directory for the download
           mkdir ./download_content
-          # Use megadl, which handles both file and folder links, and specify the output path
-          megadl --path ./download_content "${{ github.event.inputs.mega_link }}"
+          # Use 'rclone copy' which correctly handles both file and folder public links
+          rclone copy "${{ github.event.inputs.mega_link }}" ./download_content --mega-public-link
           echo "Download complete."
 
       - name: Set up Python
