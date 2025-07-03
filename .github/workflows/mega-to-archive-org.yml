@@ -32,11 +32,11 @@ jobs:
       - name: Import Mega Link and Serve as WebDAV
         # First, create a directory to import the files into.
         # Then, import the public Mega folder link into that new directory.
-        # Finally, start a WebDAV server to serve the imported content.
+        # Finally, start a public WebDAV server to serve the imported content.
         run: |
           mega-mkdir /imported-from-mega
           mega-import 'https://mega.nz/folder/6uwARLIS#pjaTvXrkmBTkaE0b5czHBA' /imported-from-mega
-          mega-webdav /imported-from-mega --port=4443 &
+          mega-webdav /imported-from-mega --port=4443 --public &
           sleep 5 # Give the server a moment to initialize
 
       - name: Configure rclone and Upload to Archive.org
