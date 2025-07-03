@@ -114,9 +114,10 @@ jobs:
                 -P
             elif [[ "$TYPE" == "file" ]]; then
               echo "--- Downloading File ID: $ID ---"
-              rclone copy gdrive: gdrive_downloads/ \
+              # This is the corrected command for downloading a single file by its ID.
+              # It uses the {ID} syntax in the source path, which is the correct rclone syntax.
+              rclone copy "gdrive:{${ID}}" gdrive_downloads/ \
                 --config ./rclone.conf \
-                --drive-file-id "$ID" \
                 -P
             else
               echo "--- WARNING: Skipping invalid item format '$ITEM_SPEC'. Use 'folder:ID' or 'file:ID'. ---"
@@ -161,8 +162,6 @@ jobs:
           fi
 
           # Start with the base command and required metadata
-          # The linter might warn about env.ARCHIVE_ID_FINAL and env.formatted_tags,
-          # but this is the correct way to access variables set in previous steps via GITHUB_ENV.
           CMD="ia --config-file ./ia.cfg upload ${{ env.ARCHIVE_ID_FINAL }} gdrive_downloads/ \
             --metadata=\"title:${{ github.event.inputs.archive_title }}\" \
             --metadata=\"collection:$ARCHIVE_COLLECTION\" \
