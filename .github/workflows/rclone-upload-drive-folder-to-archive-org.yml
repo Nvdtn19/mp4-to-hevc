@@ -111,9 +111,9 @@ jobs:
             # Construct the direct download URL for the file.
             DOWNLOAD_URL="https://drive.google.com/uc?export=download&id=${FILE_ID}"
             
-            # Use rclone copyurl, which is designed for downloading from a URL.
-            # This is the most reliable method for single files.
-            rclone copyurl "$DOWNLOAD_URL" gdrive_files/ \
+            # Use rclone copyurl and provide a full destination path, including the filename.
+            # We'll use the File ID as the filename for simplicity and uniqueness.
+            rclone copyurl "$DOWNLOAD_URL" "gdrive_files/${FILE_ID}" \
               --config ./rclone.conf \
               -P
           else
