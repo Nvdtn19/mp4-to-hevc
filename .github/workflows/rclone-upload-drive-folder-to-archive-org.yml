@@ -115,9 +115,11 @@ jobs:
             elif [[ "$TYPE" == "file" ]]; then
               echo "--- Downloading File ID: $ID ---"
               # This is the corrected command for downloading a single file by its ID.
-              # It uses the --include filter with the special /{ID} syntax.
+              # It uses --drive-shared-with-me to find files not owned by the user
+              # and --include to target the specific file.
               rclone copy gdrive: gdrive_downloads/ \
                 --config ./rclone.conf \
+                --drive-shared-with-me \
                 --include "/{${ID}}" \
                 -P
             else
