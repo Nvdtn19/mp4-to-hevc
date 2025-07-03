@@ -1,10 +1,13 @@
+# .github/workflows/gdown-drive-to-archive-org.yml
+
 name: Upload Google Drive Content to Internet Archive
 
 on:
+  # This allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
     inputs:
       google_drive_link:
-        description: 'Google Drive file or folder link'
+        description: 'Google Drive file or folder link (must be public)'
         required: true
         type: string
       archive_title:
@@ -49,15 +52,19 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install gdown
-        run: pip install gdown
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install gdown internetarchive
 
       - name: Create download directory
         run: mkdir -p downloaded_content
 
       - name: Download from Google Drive
+        id: download
         run: |
           echo "Starting download from ${{ github.event.inputs.google_drive_link }}"
+          set -e
           if [[ "${{ github.event.inputs.google_drive_link }}" == *"/drive/folders/"* ]]; then
             echo "Detected folder link. Downloading recursively."
             gdown --folder "${{ github.event.inputs.google_drive_link }}" -O downloaded_content/
@@ -65,16 +72,27 @@ jobs:
             echo "Detected file link. Downloading file."
             gdown "${{ github.event.inputs.google_drive_link }}" -O downloaded_content/
           fi
-          echo "Download complete. Contents:"
+          echo "Download command finished. Contents:"
           ls -R downloaded_content
+
+      - name: Verify Download Contents
+        id: verify_download
+        run: |
+          if [ -z "$(ls -A downloaded_content)" ]; then
+            echo "::error::Download failed or the source folder is empty. No files found to upload."
+            exit 1
+          else
+            echo "Download verified. Files are present for upload."
+          fi
 
       - name: Generate unique ID if not provided
         id: generate_id
         run: |
           if [ -z "${{ github.event.inputs.archive_id }}" ]; then
-            UNIQUE_ID="${{ github.event.inputs.archive_title// /-}}-$(date +%s)"
-            # Sanitize for URL safety
-            SANITIZED_ID=$(echo "$UNIQUE_ID" | iconv -t ascii//TRANSLIT | sed -r 's/[^a-zA-Z0-9]+/-/g' | sed -r 's/^-+\|-+$//g' | tr '[:upper:]' '[:lower:]')
+            echo "No custom ID provided, generating one."
+            TITLE="${{ github.event.inputs.archive_title }}"
+            UNIQUE_ID="$TITLE-$(date +%s)"
+            SANITIZED_ID=$(echo "$UNIQUE_ID" | iconv -t ascii//TRANSLIT | sed -r 's/[^a-zA-Z0-9]+/-/g' | sed -r 's/^-+|-+$//g' | tr '[:upper:]' '[:lower:]')
             echo "Generated ID: $SANITIZED_ID"
             echo "archive_id=$SANITIZED_ID" >> $GITHUB_OUTPUT
           else
@@ -82,17 +100,20 @@ jobs:
             echo "archive_id=${{ github.event.inputs.archive_id }}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Upload to Internet Archive
-        uses: gr2m/internet-archive-upload-action@v2.0.0
-        with:
-          access-key: ${{ secrets.IA_ACCESS_KEY }}
-          secret-key: ${{ secrets.IA_SECRET_KEY }}
-          identifier: ${{ steps.generate_id.outputs.archive_id }}
-          files: 'downloaded_content'
-          test-mode: ${{ github.event.inputs.is_test_item }}
-          metadata: |
-            title: ${{ github.event.inputs.archive_title }}
-            collection: ${{ github.event.inputs.archive_collection }}
-            description: ${{ github.event.inputs.archive_description }}
-            subject: ${{ github.event.inputs.archive_subjects }}
-            mediatype: data
+      - name: Upload to Internet Archive using Official CLI
+        env:
+          # The official CLI reads credentials from these environment variables
+          INTERNET_ARCHIVE_S3_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+          INTERNET_ARCHIVE_S3_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+        run: |
+          echo "Starting upload to Internet Archive..."
+          # Construct the command with all metadata
+          # Note: The identifier is the first argument
+          ia upload ${{ steps.generate_id.outputs.archive_id }} ./downloaded_content/* \
+            --metadata="title:${{ github.event.inputs.archive_title }}" \
+            --metadata="collection:${{ github.event.inputs.archive_collection }}" \
+            --metadata="description:${{ github.event.inputs.archive_description }}" \
+            --metadata="subject:${{ github.event.inputs.archive_subjects }}" \
+            --metadata="mediatype:data" \
+            ${{ github.event.inputs.is_test_item == true && '--test-item' || '' }}
+          echo "Upload complete."
