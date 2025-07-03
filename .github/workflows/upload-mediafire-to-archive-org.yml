@@ -1,10 +1,10 @@
-name: Download from MediaFire and Upload to Archive.org
+name: Download MediaFire File and Upload to Archive.org
 
 on:
   workflow_dispatch:
     inputs:
-      mediafire_folder_id:
-        description: 'MediaFire Folder ID (from the folder URL)'
+      mediafire_file_url:
+        description: 'The full URL of the MediaFire file to download'
         required: true
       archive_title:
         description: 'Title for the Archive.org item'
@@ -45,10 +45,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install mediafiredl internetarchive
 
-      - name: Download files from MediaFire
+      - name: Download File from MediaFire
         run: |
           mkdir -p downloaded_files
-          mediafiredl "https://www.mediafire.com/folder/${{ github.event.inputs.mediafire_folder_id }}" --path "downloaded_files"
+          mediafiredl "${{ github.event.inputs.mediafire_file_url }}" --path "downloaded_files"
 
       - name: Configure Archive.org credentials
         env:
