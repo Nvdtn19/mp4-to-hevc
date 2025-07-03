@@ -67,25 +67,20 @@ jobs:
             echo "identifier=${{ github.event.inputs.archive_page_url_id }}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Prepare and Upload to Archive.org
+      - name: Upload to Archive.org
         run: |
-          # First, determine which collection to use
+          # Determine which collection to use
           COLLECTION="${{ github.event.inputs.archive_collection_id }}"
           if [ "${{ github.event.inputs.is_test_item }}" = "true" ]; then
             COLLECTION="test_collection"
           fi
-          
-          # Next, find all downloaded files and folders to upload
-          UPLOAD_ITEMS=$(ls -A | grep -vE '^\.git|^\.github|^script|^README\.md')
-          if [ -z "$UPLOAD_ITEMS" ]; then
-            echo "No new files or folders found to upload."
-            exit 1
-          fi
-          echo "Uploading the following items:"
-          echo "$UPLOAD_ITEMS"
 
-          # Finally, run the upload command with all variables in the same script
-          ia upload ${{ steps.set_identifier.outputs.identifier }} $UPLOAD_ITEMS \
+          # Use `find` to locate all downloaded items in the current directory,
+          # excluding the script's own files and folders.
+          # Use `xargs -0` to safely pass the list of items (even with spaces)
+          # to the `ia upload` command.
+          find . -maxdepth 1 -mindepth 1 ! -name 'script' ! -name '.git*' ! -name '.github' ! -name 'README.md' -print0 | \
+          xargs -0 -r -- ia upload ${{ steps.set_identifier.outputs.identifier }} \
             --metadata="title:${{ github.event.inputs.archive_title }}" \
             --metadata="description:${{ github.event.inputs.archive_description }}" \
             --metadata="subject:${{ github.event.inputs.archive_subject_tags }}" \
