@@ -42,8 +42,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Install rclone manually
-        run: curl https://rclone.org/install.sh | sudo bash
+      - name: Install Latest Rclone
+        run: |
+          curl -L -o rclone.deb https://downloads.rclone.org/rclone-current-linux-amd64.deb
+          sudo dpkg -i rclone.deb
+          rclone version
 
       - name: Decode rclone.conf from secret
         run: |
