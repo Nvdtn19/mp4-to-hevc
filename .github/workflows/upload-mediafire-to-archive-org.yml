@@ -68,6 +68,15 @@ jobs:
           mkdir -p downloaded_files
           python download_script.py "${{ github.event.inputs.mediafire_file_url }}" "downloaded_files"
 
+      - name: Create Archive.org Config File
+        run: |
+          mkdir -p ~/.config/internetarchive
+          cat <<EOF > ~/.config/internetarchive/ia.ini
+          [s3]
+          access = ${{ secrets.IA_ACCESS_KEY }}
+          secret = ${{ secrets.IA_SECRET_KEY }}
+          EOF
+
       - name: Set Archive.org identifier
         id: set_identifier
         run: |
@@ -78,13 +87,14 @@ jobs:
           fi
 
       - name: Upload to Archive.org
-        env:
-          IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
-          IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
         run: |
+          COLLECTION="${{ github.event.inputs.archive_collection_id }}"
+          if [ "${{ github.event.inputs.is_test_item }}" = "true" ]; then
+            COLLECTION="test_collection"
+          fi
+          
           ia upload ${{ steps.set_identifier.outputs.identifier }} downloaded_files/* \
             --metadata="title:${{ github.event.inputs.archive_title }}" \
             --metadata="description:${{ github.event.inputs.archive_description }}" \
             --metadata="subject:${{ github.event.inputs.archive_subject_tags }}" \
-            --metadata="collection:${{ github.event.inputs.archive_collection_id }}" \
-            ${{ github.event.inputs.is_test_item == 'true' && '--metadata="collection:test_collection"' || '' }}
+            --metadata="collection:${COLLECTION}"
