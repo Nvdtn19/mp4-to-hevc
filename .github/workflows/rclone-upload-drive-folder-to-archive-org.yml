@@ -1,11 +1,11 @@
-name: Google Drive to Archive.org Uploader
+name: Recursive Google Drive to Archive.org Uploader
 
 # This action is triggered manually from the GitHub Actions tab.
 on:
   workflow_dispatch:
     inputs:
-      google_drive_url:
-        description: 'The full URL of the public Google Drive folder or file'
+      google_drive_folder_id:
+        description: 'The ID of the public Google Drive folder (from the URL)'
         required: true
         type: string
       archive_identifier:
@@ -74,74 +74,43 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Step 2: Install Dependencies (rclone, internetarchive)
-      - name: Install Dependencies
+      # Step 2: Install latest rclone manually
+      - name: Install latest rclone
         run: |
           curl https://rclone.org/install.sh | sudo bash
-          python -m pip install --upgrade pip
-          pip install internetarchive
-
       # Step 3: Decode rclone config from Base64 secret
+      # This is a robust way to handle the config file without copy-paste errors.
       - name: Create rclone config from secret
         run: |
           echo "${{ secrets.RCLONE_CONF }}" | base64 --decode > rclone.conf
-
-      # Step 4: Create a directory to hold the downloaded files
+      # Step 4: Install internetarchive tool
+      - name: Install internetarchive tool
+        run: |
+          python -m pip install --upgrade pip
+          pip install internetarchive
+      # Step 5: Create a directory to hold the downloaded files
       - name: Create download directory
         run: mkdir gdrive_files
 
-      # Step 5: Download from Google Drive (handles folder and file URLs)
-      - name: Download from Google Drive
+      # Step 6: Download recursively from Google Drive using rclone
+      - name: Download recursively from Google Drive
         run: |
-          URL="${{ github.event.inputs.google_drive_url }}"
-          
-          if [[ $URL == *"/folders/"* ]]; then
-            # Extract Folder ID from URL
-            FOLDER_ID=$(echo "$URL" | sed -n 's|.*/folders/\([^/?]*\).*|\1|p')
-            echo "--- Downloading from Folder ID: $FOLDER_ID ---"
-            rclone copy gdrive: gdrive_files/ \
-              --config ./rclone.conf \
-              --drive-root-folder-id "$FOLDER_ID" \
-              -P
-          elif [[ $URL == *"/file/d/"* ]]; then
-            # Extract File ID from URL
-            FILE_ID=$(echo "$URL" | sed -n 's|.*/d/\([^/?]*\).*|\1|p')
-            echo "--- Looking up filename for File ID: $FILE_ID ---"
-            
-            # Use rclone lsl to get the file listing. The output is like: " size date time name".
-            # We use awk to reliably get the filename, even if it contains spaces.
-            FILENAME=$(rclone lsl "gdrive:{${FILE_ID}}" --config ./rclone.conf --drive-shared-with-me | awk '{for(i=4;i<=NF;i++) printf "%s ", $i; print ""}' | sed 's/ $//')
-
-            if [[ -n "$FILENAME" ]]; then
-              echo "--- Filename found: $FILENAME. Downloading... ---"
-              # Use rclone copyto for a direct file-to-file transfer. This is more robust.
-              rclone copyto "gdrive:{${FILE_ID}}" "gdrive_files/${FILENAME}" \
-                --config ./rclone.conf \
-                --drive-shared-with-me \
-                -P
-            else
-              echo "--- ERROR: Could not find filename for File ID: $FILE_ID. Skipping. ---"
-              exit 1
-            fi
-          else
-            echo "--- ERROR: Invalid Google Drive URL format. Please provide a valid file or folder link. ---"
-            exit 1
-          fi
-
-      # Step 6: Create local Archive.org config file
+          rclone copy gdrive: gdrive_files/ \
+            --config ./rclone.conf \
+            --drive-root-folder-id ${{ github.event.inputs.google_drive_folder_id }} \
+            -P
+      # Step 7: Create local Archive.org config file
       - name: Create local Archive.org config file
         run: |
           echo "[s3]" > ia.cfg
           echo "access = ${{ secrets.IA_ACCESS_KEY }}" >> ia.cfg
           echo "secret = ${{ secrets.IA_SECRET_KEY }}" >> ia.cfg
-
-      # Step 7: Prepare subject tags for the upload command
+      # Step 8: Prepare subject tags for the upload command
       - name: Prepare Subject Tags
         run: |
           tags="${{ github.event.inputs.archive_subjects }}"
           echo "formatted_tags=${tags//,/;}" >> $GITHUB_ENV
-
-      # Step 8: Set Archive.org Identifier (use default if blank)
+      # Step 9: Set Archive.org Identifier (use default if blank)
       - name: Set Archive.org Identifier
         run: |
           if [[ -z "${{ github.event.inputs.archive_identifier }}" ]]; then
@@ -151,8 +120,7 @@ jobs:
             echo "Using user-provided identifier."
             echo "ARCHIVE_ID_FINAL=${{ github.event.inputs.archive_identifier }}" >> $GITHUB_ENV
           fi
-
-      # Step 9: Build and execute the upload command
+      # Step 10: Build and execute the upload command
       - name: Upload files to Archive.org
         run: |
           # Determine the correct collection based on the mediatype
@@ -164,13 +132,11 @@ jobs:
           else
             ARCHIVE_COLLECTION="opensource_$MEDIATYPE"
           fi
-
           # Start with the base command and required metadata
           CMD="ia --config-file ./ia.cfg upload ${{ env.ARCHIVE_ID_FINAL }} gdrive_files/ \
             --metadata=\"title:${{ github.event.inputs.archive_title }}\" \
             --metadata=\"collection:$ARCHIVE_COLLECTION\" \
             --metadata=\"mediatype:$MEDIATYPE\""
-
           # Add optional text metadata if it exists
           if [[ -n "${{ github.event.inputs.archive_description }}" ]]; then
             CMD="$CMD --metadata=\"description:${{ github.event.inputs.archive_description }}\""
@@ -184,12 +150,10 @@ jobs:
           if [[ -n "${{ github.event.inputs.archive_date }}" ]]; then
             CMD="$CMD --metadata=\"date:${{ github.event.inputs.archive_date }}\""
           fi
-
           # Handle Test Item selection
           if [[ "${{ github.event.inputs.archive_test_item }}" == "Yes (will be removed after 30 days)" ]]; then
             CMD="$CMD --metadata=\"test-item:yes\""
           fi
-
           # Handle License selection
           LICENSE_URL=""
           if [[ "${{ github.event.inputs.archive_license }}" == "CC0 - \"No Rights Reserved\"" ]]; then
@@ -209,7 +173,6 @@ jobs:
           if [[ -n "$LICENSE_URL" ]]; then
             CMD="$CMD --metadata=\"licenseurl:$LICENSE_URL\""
           fi
-
           # Execute the final command
           echo "Executing command..."
           eval $CMD
