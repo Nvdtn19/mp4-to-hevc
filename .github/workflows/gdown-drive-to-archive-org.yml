@@ -1,0 +1,98 @@
+name: Upload Google Drive Content to Internet Archive
+
+on:
+  workflow_dispatch:
+    inputs:
+      google_drive_link:
+        description: 'Google Drive file or folder link'
+        required: true
+        type: string
+      archive_title:
+        description: 'Title for the archive.org item'
+        required: true
+        type: string
+      archive_id:
+        description: 'Unique ID for the archive.org page (optional, auto-generated if blank)'
+        required: false
+        type: string
+      archive_description:
+        description: 'Description for the item (supports Markdown)'
+        required: false
+        type: string
+        default: 'Archived content from Google Drive.'
+      archive_subjects:
+        description: 'Subject tags (semicolon-separated, e.g., "tech;data;archive")'
+        required: false
+        type: string
+        default: 'opensource'
+      archive_collection:
+        description: 'The collection to add this item to'
+        required: true
+        type: string
+        default: 'opensource_media'
+      is_test_item:
+        description: 'Use "true" for a test run (item deleted after 24h)'
+        required: true
+        type: boolean
+        default: true
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install gdown
+        run: pip install gdown
+
+      - name: Create download directory
+        run: mkdir -p downloaded_content
+
+      - name: Download from Google Drive
+        run: |
+          echo "Starting download from ${{ github.event.inputs.google_drive_link }}"
+          if [[ "${{ github.event.inputs.google_drive_link }}" == *"/drive/folders/"* ]]; then
+            echo "Detected folder link. Downloading recursively."
+            gdown --folder "${{ github.event.inputs.google_drive_link }}" -O downloaded_content/
+          else
+            echo "Detected file link. Downloading file."
+            gdown "${{ github.event.inputs.google_drive_link }}" -O downloaded_content/
+          fi
+          echo "Download complete. Contents:"
+          ls -R downloaded_content
+
+      - name: Generate unique ID if not provided
+        id: generate_id
+        run: |
+          if [ -z "${{ github.event.inputs.archive_id }}" ]; then
+            UNIQUE_ID="${{ github.event.inputs.archive_title// /-}}-$(date +%s)"
+            # Sanitize for URL safety
+            SANITIZED_ID=$(echo "$UNIQUE_ID" | iconv -t ascii//TRANSLIT | sed -r 's/[^a-zA-Z0-9]+/-/g' | sed -r 's/^-+\|-+$//g' | tr '[:upper:]' '[:lower:]')
+            echo "Generated ID: $SANITIZED_ID"
+            echo "archive_id=$SANITIZED_ID" >> $GITHUB_OUTPUT
+          else
+            echo "Using provided ID: ${{ github.event.inputs.archive_id }}"
+            echo "archive_id=${{ github.event.inputs.archive_id }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload to Internet Archive
+        uses: gr2m/internet-archive-upload-action@v2.0.0
+        with:
+          access-key: ${{ secrets.IA_ACCESS_KEY }}
+          secret-key: ${{ secrets.IA_SECRET_KEY }}
+          identifier: ${{ steps.generate_id.outputs.archive_id }}
+          files: 'downloaded_content'
+          test-mode: ${{ github.event.inputs.is_test_item }}
+          metadata: |
+            title: ${{ github.event.inputs.archive_title }}
+            collection: ${{ github.event.inputs.archive_collection }}
+            description: ${{ github.event.inputs.archive_description }}
+            subject: ${{ github.event.inputs.archive_subjects }}
+            mediatype: data
