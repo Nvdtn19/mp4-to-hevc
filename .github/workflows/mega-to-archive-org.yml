@@ -41,12 +41,14 @@ jobs:
 
       - name: Configure rclone and Upload to Archive.org
         # Sets up rclone configuration using environment variables and then runs the copy command.
-        # By combining these, we ensure the env variables are available for the rclone copy command.
+        # This step now includes authentication for the WebDAV remote.
         env:
           # WebDAV remote configuration pointing to the local megacmd server
           RCLONE_CONFIG_WEBDAV_TYPE: webdav
           RCLONE_CONFIG_WEBDAV_URL: http://127.0.0.1:4443
           RCLONE_CONFIG_WEBDAV_VENDOR: other
+          RCLONE_CONFIG_WEBDAV_USER: ${{ secrets.MEGA_EMAIL }}
+          RCLONE_CONFIG_WEBDAV_PASS: ${{ secrets.MEGA_PASSWORD }}
 
           # Internet Archive remote configuration using secrets
           RCLONE_CONFIG_ARCHIVE_TYPE: internetarchive
