@@ -110,8 +110,9 @@ jobs:
             FILE_ID=$(echo "$URL" | sed -n 's|.*/d/\([^/?]*\).*|\1|p')
             echo "--- Looking up filename for File ID: $FILE_ID ---"
             
-            # Use rclone lsjson to get the filename from the ID.
-            FILENAME=$(rclone lsjson gdrive: --config ./rclone.conf --drive-shared-with-me --files-only --include "/{${FILE_ID}}" | jq -r '.[0].Name')
+            # This is the corrected, more direct way to get the file's metadata.
+            # It asks rclone for information about the specific file ID.
+            FILENAME=$(rclone lsjson "gdrive:{${FILE_ID}}" --config ./rclone.conf --drive-shared-with-me | jq -r '.[0].Name')
 
             if [[ -n "$FILENAME" && "$FILENAME" != "null" ]]; then
               echo "--- Filename found: $FILENAME. Downloading... ---"
