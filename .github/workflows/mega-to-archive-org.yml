@@ -30,13 +30,12 @@ jobs:
           mega-login "$MEGA_EMAIL" "$MEGA_PASSWORD"
 
       - name: Import Mega Link and Serve as WebDAV
-        # First, create a directory to import the files into.
-        # Then, import the public Mega folder link into that new directory.
-        # Finally, start a public WebDAV server to serve the imported content.
+        # Create a directory, import the link, and serve the ENTIRE account root (/) via WebDAV.
+        # This is more stable than serving a sub-directory.
         run: |
           mega-mkdir /imported-from-mega
           mega-import 'https://mega.nz/folder/6uwARLIS#pjaTvXrkmBTkaE0b5czHBA' /imported-from-mega
-          mega-webdav /imported-from-mega --port=4443 --public &
+          mega-webdav / --port=4443 --public &
           sleep 5 # Give the server a moment to initialize
 
       - name: Configure rclone and Upload to Archive.org
@@ -63,6 +62,6 @@ jobs:
           rclone config show
           
           echo "Starting upload to Archive.org..."
-          # Copies all files and folders from the WebDAV source (Mega folder)
+          # Copies files from the 'imported-from-mega' directory on the WebDAV remote
           # to the specified existing Archive.org item
-          rclone copy webdav: archive:gdrive-upload-16031443727-1/ --progress
+          rclone copy webdav:imported-from-mega/ archive:gdrive-upload-16031443727-1/ --progress
