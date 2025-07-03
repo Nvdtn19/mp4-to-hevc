@@ -43,7 +43,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install mediafire-dl internetarchive
+          pip install mediafire-downloader internetarchive
 
       - name: Configure Archive.org credentials
         env:
@@ -55,7 +55,7 @@ jobs:
       - name: Download files from MediaFire
         run: |
           mkdir -p downloaded_files
-          mediafire-dl "https://www.mediafire.com/folder/${{ github.event.inputs.mediafire_folder_id }}" downloaded_files
+          mediafire-downloader "https://www.mediafire.com/folder/${{ github.event.inputs.mediafire_folder_id }}" -o downloaded_files
 
       - name: Set Archive.org identifier
         id: set_identifier
