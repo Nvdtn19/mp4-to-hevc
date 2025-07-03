@@ -30,10 +30,11 @@ jobs:
           mega-login "$MEGA_EMAIL" "$MEGA_PASSWORD"
 
       - name: Import Mega Link and Serve as WebDAV
-        # First, imports the public Mega folder link into the session.
-        # The destination path is provided as a positional argument.
-        # Then, starts a WebDAV server to serve the imported content.
+        # First, create a directory to import the files into.
+        # Then, import the public Mega folder link into that new directory.
+        # Finally, start a WebDAV server to serve the imported content.
         run: |
+          mega-mkdir /imported-from-mega
           mega-import 'https://mega.nz/folder/6uwARLIS#pjaTvXrkmBTkaE0b5czHBA' /imported-from-mega
           mega-webdav /imported-from-mega --port=4443 &
           sleep 5 # Give the server a moment to initialize
